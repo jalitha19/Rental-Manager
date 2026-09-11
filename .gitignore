@@ -1,0 +1,25 @@
+# Root workspace generated folders
+node_modules/
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Frontend build and package artifacts
+rental-frontend/node_modules/
+rental-frontend/dist/
+rental-frontend/.vite/
+
+# Backend compile and build artifacts
+rental-backend/target/
+rental-backend/.idea/
+rental-backend/.vscode/
+
+# Java and tooling artifacts
+*.class
+*.log
+*.jar
+
+# Local editor settings
+.vscode/
+.idea/
