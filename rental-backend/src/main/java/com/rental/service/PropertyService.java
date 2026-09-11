@@ -1,0 +1,87 @@
+package com.rental.service;
+
+import com.rental.dto.PropertyRequest;
+import com.rental.dto.PropertyResponse;
+import com.rental.entity.Property;
+import com.rental.entity.enums.PropertyStatus;
+import com.rental.entity.enums.PropertyType;
+import com.rental.entity.enums.RentalStatus;
+import com.rental.exception.BusinessRuleException;
+import com.rental.exception.ResourceNotFoundException;
+import com.rental.mapper.PropertyMapper;
+import com.rental.repository.PropertyRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class PropertyService {
+
+    private final PropertyRepository propertyRepository;
+    private final PropertyMapper propertyMapper;
+
+    public List<PropertyResponse> list(PropertyType type) {
+        List<Property> properties = type != null
+                ? propertyRepository.findByType(type)
+                : propertyRepository.findAll();
+        return properties.stream().map(propertyMapper::toResponse).toList();
+    }
+
+    public List<PropertyResponse> search(String query) {
+        return propertyRepository.search(query).stream().map(propertyMapper::toResponse).toList();
+    }
+
+    public PropertyResponse get(Long id) {
+        return propertyMapper.toResponse(getEntityOrThrow(id));
+    }
+
+    public PropertyResponse create(PropertyRequest request) {
+        if (propertyRepository.existsByPropertyCodeIgnoreCase(request.propertyCode())) {
+            throw new BusinessRuleException(
+                    "A property with code '" + request.propertyCode() + "' already exists");
+        }
+        Property saved = propertyRepository.save(propertyMapper.toEntity(request));
+        return propertyMapper.toResponse(saved);
+    }
+
+    public PropertyResponse update(Long id, PropertyRequest request) {
+        Property property = getEntityOrThrow(id);
+
+        if (propertyRepository.existsByPropertyCodeIgnoreCaseAndIdNot(request.propertyCode(), id)) {
+            throw new BusinessRuleException(
+                    "A property with code '" + request.propertyCode() + "' already exists");
+        }
+
+        boolean hasActiveRental = property.getRentals().stream()
+                .anyMatch(rental -> rental.getStatus() == RentalStatus.ACTIVE);
+
+        if (hasActiveRental && request.status() == PropertyStatus.AVAILABLE) {
+            throw new BusinessRuleException(
+                    "This property has an active rental. End the rental or change tenant before marking it available.");
+        }
+
+        propertyMapper.updateEntity(property, request);
+        return propertyMapper.toResponse(property);
+    }
+
+    public void delete(Long id) {
+        Property property = getEntityOrThrow(id);
+
+        if (!property.getRentals().isEmpty()) {
+            throw new BusinessRuleException(
+                    "This property has rental history and cannot be deleted. " +
+                    "Set its status to MAINTENANCE instead if it's no longer in use.");
+        }
+
+        propertyRepository.delete(property);
+    }
+
+    private Property getEntityOrThrow(Long id) {
+        return propertyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Property not found: " + id));
+    }
+}

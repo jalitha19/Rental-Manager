@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN photo_url VARCHAR(1000);
