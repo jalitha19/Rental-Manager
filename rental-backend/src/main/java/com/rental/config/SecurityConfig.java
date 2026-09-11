@@ -55,16 +55,17 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable()) // stateless token-based API, no cookies involved
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/login").permitAll()
-                        .requestMatchers("/actuator/health").permitAll()
-                        .anyRequest().authenticated()
+                .requestMatchers("/api/auth/login").permitAll()
+                .requestMatchers("/api/first-admin", "/api/first-admin/status").permitAll()
+                .requestMatchers("/actuator/health").permitAll()
+                .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json");
-                    response.getWriter().write(
-                            "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Please sign in again\",\"details\":[]}");
-                }))
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write(
+                    "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Please sign in again\",\"details\":[]}");
+        }))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -72,9 +73,9 @@ public class SecurityConfig {
     }
 
     /**
-     * Allows the frontend (hosted on a different origin/port during development,
-     * and possibly a different domain in production) to call this API.
-     * Restrict allowed-origins via ALLOWED_ORIGINS env var in production.
+     * Allows the frontend (hosted on a different origin/port during
+     * development, and possibly a different domain in production) to call this
+     * API. Restrict allowed-origins via ALLOWED_ORIGINS env var in production.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
