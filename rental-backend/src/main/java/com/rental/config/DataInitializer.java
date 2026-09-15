@@ -34,11 +34,15 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // First admin is created through the first-admin bootstrap API.
-        // This avoids hard-seeding a default account and lets the very first
-        // user choose the username/password at setup time.
         if (userRepository.count() > 0) {
             return;
         }
+
+        User admin = User.builder()
+                .username(defaultAdminUsername)
+                .passwordHash(passwordEncoder.encode(defaultAdminPassword))
+                .build();
+        userRepository.save(admin);
+        log.info("Created the default admin account for username '{}'.", defaultAdminUsername);
     }
 }
