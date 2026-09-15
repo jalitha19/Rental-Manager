@@ -80,7 +80,7 @@
   .print-sheet-kicker {
     margin: 0 0 6px;
     color: #587060;
-    font: 600 10px/1.2 Arial, sans-serif;
+    font: 600 10px/1.2 Arial, sans-serif ;
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
