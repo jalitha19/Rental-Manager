@@ -77,6 +77,16 @@ public class Rental {
     @Builder.Default
     private List<RentPayment> payments = new ArrayList<>();
 
+    /**
+     * The people living under this rental, each with their own start date and
+     * rent. The tenant, tenant2, startDate and monthlyRent fields above are
+     * summary values kept in sync from this list.
+     */
+    @OneToMany(mappedBy = "rental", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("id ASC")
+    @Builder.Default
+    private List<RentalTenant> occupants = new ArrayList<>();
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

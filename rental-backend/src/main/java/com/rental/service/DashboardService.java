@@ -4,6 +4,7 @@ import com.rental.dto.DashboardResponse;
 import com.rental.dto.RentPendingItem;
 import com.rental.entity.Property;
 import com.rental.entity.RentPayment;
+import com.rental.entity.Rental;
 import com.rental.entity.enums.PaymentStatus;
 import com.rental.entity.enums.PropertyStatus;
 import com.rental.entity.enums.PropertyType;
@@ -68,11 +69,11 @@ public class DashboardService {
         var activeRentals = rentalRepository.findByStatus(RentalStatus.ACTIVE);
         long roomsTenants = activeRentals.stream()
                 .filter(r -> r.getProperty().getType() == PropertyType.ROOM)
-                .mapToLong(r -> 1L + (r.getTenant2() != null ? 1L : 0L))
+                .mapToLong(this::currentOccupantCount)
                 .sum();
         long housesTenants = activeRentals.stream()
                 .filter(r -> r.getProperty().getType() == PropertyType.HOUSE)
-                .mapToLong(r -> 1L + (r.getTenant2() != null ? 1L : 0L))
+                .mapToLong(this::currentOccupantCount)
                 .sum();
 
         LocalDate periodMonth = YearMonth.now().atDay(1);
@@ -117,10 +118,16 @@ public class DashboardService {
         );
     }
 
+    private long currentOccupantCount(Rental rental) {
+        return rental.getOccupants().stream().filter(occupant -> occupant.getEndDate() == null).count();
+    }
+
     private RentPendingItem toRentPendingItem(RentPayment payment) {
         var rental = payment.getRental();
         var property = rental.getProperty();
-        var tenant = rental.getTenant();
+        var tenant = payment.getRentalTenant() != null
+                ? payment.getRentalTenant().getTenant()
+                : rental.getTenant();
         var paid = payment.getAmountPaid() != null ? payment.getAmountPaid() : BigDecimal.ZERO;
         var balance = payment.getAmountDue().subtract(paid);
         boolean overdue = payment.getDueDate() != null && payment.getDueDate().isBefore(LocalDate.now());

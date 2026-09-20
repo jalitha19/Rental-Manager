@@ -18,6 +18,8 @@ public interface RentPaymentRepository extends JpaRepository<RentPayment, Long> 
 
     boolean existsByRentalIdAndPeriodMonth(Long rentalId, LocalDate periodMonth);
 
+    boolean existsByRentalTenantIdAndPeriodMonth(Long rentalTenantId, LocalDate periodMonth);
+
     @Modifying(flushAutomatically = true)
     @Query("delete from RentPayment p where p.rental.id = :rentalId")
     void deleteByRentalId(@Param("rentalId") Long rentalId);

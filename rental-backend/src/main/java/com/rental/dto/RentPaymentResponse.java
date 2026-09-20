@@ -22,6 +22,8 @@ public record RentPaymentResponse(
         PaymentMethod paymentMethod,
         String notes,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        /** The rental_tenants row this payment belongs to */
+        Long rentalTenantId
 ) {
 }

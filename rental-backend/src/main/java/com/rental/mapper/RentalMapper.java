@@ -1,10 +1,12 @@
 package com.rental.mapper;
 
+import com.rental.dto.OccupantResponse;
 import com.rental.dto.PropertySummary;
 import com.rental.dto.RentalResponse;
 import com.rental.dto.TenantSummary;
 import com.rental.entity.Property;
 import com.rental.entity.Rental;
+import com.rental.entity.RentalTenant;
 import com.rental.entity.Tenant;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +27,18 @@ public class RentalMapper {
                 rental.getStatus(),
                 rental.getNotes(),
                 rental.getCreatedAt(),
-                rental.getUpdatedAt()
+                rental.getUpdatedAt(),
+                rental.getOccupants().stream().map(this::toOccupantResponse).toList()
+        );
+    }
+
+    public OccupantResponse toOccupantResponse(RentalTenant occupant) {
+        return new OccupantResponse(
+                occupant.getId(),
+                toTenantSummary(occupant.getTenant()),
+                occupant.getStartDate(),
+                occupant.getEndDate(),
+                occupant.getMonthlyRent()
         );
     }
 

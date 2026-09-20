@@ -9,6 +9,7 @@ import com.rental.entity.TenantPhone;
 import com.rental.exception.BusinessRuleException;
 import com.rental.exception.ResourceNotFoundException;
 import com.rental.mapper.TenantMapper;
+import com.rental.repository.RentalTenantRepository;
 import com.rental.repository.TenantPhoneRepository;
 import com.rental.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class TenantService {
     private final TenantRepository tenantRepository;
     private final TenantPhoneRepository tenantPhoneRepository;
     private final TenantMapper tenantMapper;
+    private final RentalTenantRepository rentalTenantRepository;
 
     public List<TenantResponse> list() {
         return tenantRepository.findAll().stream().map(tenantMapper::toResponse).toList();
@@ -65,7 +67,7 @@ public class TenantService {
     public void delete(Long id) {
         Tenant tenant = getEntityOrThrow(id);
 
-        if (!tenant.getRentals().isEmpty()) {
+        if (!tenant.getRentals().isEmpty() || rentalTenantRepository.existsByTenantId(id)) {
             throw new BusinessRuleException(
                     "This tenant has rental history and cannot be deleted, to keep that history intact.");
         }

@@ -6,6 +6,7 @@ import com.rental.dto.RentPaymentResponse;
 import com.rental.dto.RentPaymentUpdateRequest;
 import com.rental.entity.Rental;
 import com.rental.entity.RentPayment;
+import com.rental.entity.RentalTenant;
 import com.rental.entity.enums.PaymentStatus;
 import com.rental.entity.enums.RentalStatus;
 import com.rental.exception.BusinessRuleException;
@@ -69,15 +70,17 @@ public class RentPaymentService {
         Rental rental = rentalRepository.findById(request.rentalId())
                 .orElseThrow(() -> new ResourceNotFoundException("Rental not found: " + request.rentalId()));
 
+        RentalTenant occupant = resolveOccupant(rental, request.rentalTenantId());
         LocalDate normalizedMonth = request.periodMonth().withDayOfMonth(1);
 
-        if (rentPaymentRepository.existsByRentalIdAndPeriodMonth(rental.getId(), normalizedMonth)) {
+        if (rentPaymentRepository.existsByRentalTenantIdAndPeriodMonth(occupant.getId(), normalizedMonth)) {
             throw new BusinessRuleException(
-                    "A payment record for " + normalizedMonth + " already exists for this rental");
+                    "A payment record for " + normalizedMonth + " already exists for this tenant");
         }
 
         RentPayment payment = RentPayment.builder()
                 .rental(rental)
+                .rentalTenant(occupant)
                 .periodMonth(normalizedMonth)
                 .amountDue(request.amountDue())
                 .amountPaid(BigDecimal.ZERO)
@@ -87,6 +90,21 @@ public class RentPaymentService {
                 .build();
 
         return rentPaymentMapper.toResponse(rentPaymentRepository.save(payment));
+    }
+
+    private RentalTenant resolveOccupant(Rental rental, Long rentalTenantId) {
+        List<RentalTenant> occupants = rental.getOccupants();
+        if (rentalTenantId != null) {
+            return occupants.stream()
+                    .filter(occupant -> occupant.getId().equals(rentalTenantId))
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessRuleException("That tenant does not belong to this rental"));
+        }
+        if (occupants.size() == 1) {
+            return occupants.get(0);
+        }
+        throw new BusinessRuleException(
+                "This rental has more than one tenant. Choose which tenant the payment is for.");
     }
 
     public RentPaymentResponse update(Long id, RentPaymentUpdateRequest request) {
@@ -145,11 +163,10 @@ public class RentPaymentService {
     }
 
     /**
-     * Creates missing UNPAID payment records for every ACTIVE rental from the
-     * rental start month through the requested month. Safe to call repeatedly
-     * -- existing records are skipped. This restores the expected
-     * one-record-per- month rent ledger instead of creating only the current
-     * month row.
+     * Creates missing UNPAID payment records for every tenant of every ACTIVE
+     * rental, from that tenant's own start month through the requested month
+     * (or the month they left, if earlier). Tenants with a monthly rent of 0
+     * are skipped. Safe to call repeatedly -- existing records are skipped.
      */
     public List<RentPaymentResponse> generateCurrentMonthPayments() {
         return generateCurrentMonthPayments(null);
@@ -162,23 +179,37 @@ public class RentPaymentService {
         List<RentPaymentResponse> generated = new ArrayList<>();
 
         for (Rental rental : activeRentals) {
-            LocalDate firstMonth = rental.getStartDate().withDayOfMonth(1);
-            for (LocalDate month : monthsBetweenInclusive(firstMonth, upperMonth)) {
-                if (rentPaymentRepository.existsByRentalIdAndPeriodMonth(rental.getId(), month)) {
+            for (RentalTenant occupant : rental.getOccupants()) {
+                if (occupant.getMonthlyRent() == null || occupant.getMonthlyRent().signum() <= 0) {
                     continue;
                 }
 
-                LocalDate dueDate = dueDateFor(rental, month);
-                RentPayment payment = RentPayment.builder()
-                        .rental(rental)
-                        .periodMonth(month)
-                        .amountDue(rental.getMonthlyRent())
-                        .amountPaid(BigDecimal.ZERO)
-                        .dueDate(dueDate)
-                        .status(PaymentStatus.UNPAID)
-                        .build();
+                LocalDate firstMonth = occupant.getStartDate().withDayOfMonth(1);
+                LocalDate lastMonth = upperMonth;
+                if (occupant.getEndDate() != null) {
+                    LocalDate endMonth = occupant.getEndDate().withDayOfMonth(1);
+                    if (endMonth.isBefore(lastMonth)) {
+                        lastMonth = endMonth;
+                    }
+                }
 
-                generated.add(rentPaymentMapper.toResponse(rentPaymentRepository.save(payment)));
+                for (LocalDate month : monthsBetweenInclusive(firstMonth, lastMonth)) {
+                    if (rentPaymentRepository.existsByRentalTenantIdAndPeriodMonth(occupant.getId(), month)) {
+                        continue;
+                    }
+
+                    RentPayment payment = RentPayment.builder()
+                            .rental(rental)
+                            .rentalTenant(occupant)
+                            .periodMonth(month)
+                            .amountDue(occupant.getMonthlyRent())
+                            .amountPaid(BigDecimal.ZERO)
+                            .dueDate(dueDateFor(rental, month))
+                            .status(PaymentStatus.UNPAID)
+                            .build();
+
+                    generated.add(rentPaymentMapper.toResponse(rentPaymentRepository.save(payment)));
+                }
             }
         }
 

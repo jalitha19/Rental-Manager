@@ -25,7 +25,8 @@ public class RentPaymentMapper {
                 payment.getPaymentMethod(),
                 payment.getNotes(),
                 payment.getCreatedAt(),
-                payment.getUpdatedAt()
+                payment.getUpdatedAt(),
+                payment.getRentalTenant() != null ? payment.getRentalTenant().getId() : null
         );
     }
 
@@ -46,7 +47,9 @@ public class RentPaymentMapper {
     private RentalSummary toRentalSummary(RentPayment payment) {
         var rental = payment.getRental();
         var property = rental.getProperty();
-        var tenant = rental.getTenant();
+        var tenant = payment.getRentalTenant() != null
+                ? payment.getRentalTenant().getTenant()
+                : rental.getTenant();
 
         return new RentalSummary(
                 rental.getId(),

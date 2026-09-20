@@ -20,6 +20,9 @@ public record RentPaymentRequest(
         @NotNull(message = "Due date is required")
         LocalDate dueDate,
 
-        String notes
+        String notes,
+
+        /** Which tenant of the rental this payment is for. Optional when the rental has one tenant. */
+        Long rentalTenantId
 ) {
 }

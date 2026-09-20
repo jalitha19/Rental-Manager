@@ -15,6 +15,14 @@ public interface RentalRepository extends JpaRepository<Rental, Long> {
 
     List<Rental> findByTenantIdOrderByStartDateDesc(Long tenantId);
 
+    @Query("""
+            SELECT DISTINCT r FROM Rental r
+            JOIN r.occupants o
+            WHERE o.tenant.id = :tenantId
+            ORDER BY r.startDate DESC
+            """)
+    List<Rental> findByOccupantTenantId(@Param("tenantId") Long tenantId);
+
     Optional<Rental> findByPropertyIdAndStatus(Long propertyId, RentalStatus status);
 
     List<Rental> findByStatus(RentalStatus status);

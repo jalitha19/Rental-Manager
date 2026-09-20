@@ -31,6 +31,11 @@ public class RentPayment {
     @JoinColumn(name = "rental_id", nullable = false)
     private Rental rental;
 
+    /** The occupant this payment belongs to. Null only for very old rows. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "rental_tenant_id")
+    private RentalTenant rentalTenant;
+
     /** Stored as the first day of the month this payment covers, e.g. 2026-08-01 */
     @Column(name = "period_month", nullable = false)
     private LocalDate periodMonth;
