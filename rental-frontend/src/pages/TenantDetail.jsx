@@ -7,6 +7,7 @@ import { listProperties } from '../services/propertyService'
 import { getErrorMessage } from '../services/api'
 import { uploadTenantPhoto } from '../services/supabaseStorage'
 import { formatDate, formatCurrency, formatMonth, todayIso } from '../utils/format'
+import { getOccupants } from '../utils/occupants'
 import { useToast } from '../contexts/ToastContext'
 import StatusBadge from '../components/StatusBadge'
 import Modal from '../components/Modal'
@@ -184,6 +185,15 @@ export default function TenantDetail() {
     }
   }
 
+  function myTerms(rental) {
+    const mine = getOccupants(rental).find((o) => String(o.tenant?.id) === String(id))
+    return {
+      startDate: mine?.startDate ?? rental.startDate,
+      endDate: mine?.endDate ?? rental.endDate,
+      monthlyRent: mine?.monthlyRent ?? rental.monthlyRent,
+    }
+  }
+
   async function confirmHistoryDelete() {
     setBusy(true)
     try {
@@ -334,8 +344,8 @@ export default function TenantDetail() {
             {history.map((rental) => (
               <li key={rental.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
-                  {rental.property?.propertyCode} · {rental.property?.name} · {formatDate(rental.startDate)} –{' '}
-                  {formatDate(rental.endDate)} · {formatCurrency(rental.monthlyRent)}
+                  {rental.property?.propertyCode} · {rental.property?.name} · {formatDate(myTerms(rental).startDate)} –{' '}
+                  {formatDate(myTerms(rental).endDate)} · {formatCurrency(myTerms(rental).monthlyRent)}
                 </span>
                 <span className="flex items-center gap-3">
                   <StatusBadge status={rental.status} />
@@ -496,8 +506,8 @@ export default function TenantDetail() {
                 {printTarget.history.map((rental) => (
                   <div key={rental.id} className="print-history-row">
                     <span><strong>{rental.property?.propertyCode || '—'}</strong> · {rental.property?.name || '—'}</span>
-                    <span>{formatDate(rental.startDate)} – {formatDate(rental.endDate)}</span>
-                    <span>{formatCurrency(rental.monthlyRent)}</span>
+                    <span>{formatDate(myTerms(rental).startDate)} – {formatDate(myTerms(rental).endDate)}</span>
+                    <span>{formatCurrency(myTerms(rental).monthlyRent)}</span>
                     <span>{rental.status}</span>
                   </div>
                 ))}

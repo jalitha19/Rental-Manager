@@ -11,6 +11,9 @@ import EmptyState from '../components/EmptyState'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Field, { inputClass, btnPrimary, btnSecondary } from '../components/Field'
+import OccupantsForm from '../components/OccupantsForm'
+import OccupantTermsModal from '../components/OccupantTermsModal'
+import { emptyOccupant, getOccupants, occupantNames, toOccupantPayload } from '../utils/occupants'
 
 const EMPTY_FORM = {
   propertyCode: '',
@@ -41,14 +44,12 @@ export default function PropertiesPage({ type, title }) {
   const [tenants, setTenants] = useState([])
   const [changeOpen, setChangeOpen] = useState(null)
   const [changeForm, setChangeForm] = useState({
-    newTenantId: '',
-    newTenant2Id: '',
-    newStartDate: todayIso(),
-    monthlyRent: '',
+    occupants: [emptyOccupant(todayIso(), '')],
     deposit: '',
     paymentDueDay: '1',
     notes: '',
   })
+  const [termsTarget, setTermsTarget] = useState(null)
 
   async function load(search = query) {
     setLoading(true)
@@ -167,12 +168,11 @@ export default function PropertiesPage({ type, title }) {
       }
     }
     const rental = occupancy.get(property.id)
+    const existing = getOccupants(rental)
+    const startingRent = existing.length === 1 ? existing[0].monthlyRent : property.monthlyRent
     setChangeOpen(property)
     setChangeForm({
-      newTenantId: '',
-      newTenant2Id: '',
-      newStartDate: todayIso(),
-      monthlyRent: rental?.monthlyRent ?? property.monthlyRent ?? '',
+      occupants: [emptyOccupant(todayIso(), startingRent ?? '')],
       deposit: rental?.deposit ?? property.deposit ?? '',
       paymentDueDay: rental?.paymentDueDay ?? 1,
       notes: '',
@@ -184,10 +184,7 @@ export default function PropertiesPage({ type, title }) {
     setSaving(true)
     try {
       await changeTenant(changeOpen.id, {
-        newTenantId: Number(changeForm.newTenantId),
-        newTenant2Id: changeForm.newTenant2Id ? Number(changeForm.newTenant2Id) : null,
-        newStartDate: changeForm.newStartDate,
-        monthlyRent: changeForm.monthlyRent === '' ? null : Number(changeForm.monthlyRent),
+        occupants: toOccupantPayload(changeForm.occupants),
         deposit: changeForm.deposit === '' ? null : Number(changeForm.deposit),
         paymentDueDay: changeForm.paymentDueDay ? Number(changeForm.paymentDueDay) : null,
         notes: changeForm.notes || null,
@@ -256,9 +253,11 @@ export default function PropertiesPage({ type, title }) {
           {items.map((property) => {
             const rental = occupancy.get(property.id)
             const tenantNames = rental
-              ? [rental.tenant?.fullName, rental.tenant2?.fullName].filter(Boolean).join(' & ')
+              ? getOccupants(rental)
+                  .map((o) => `${o.tenant?.fullName} (${formatCurrency(o.monthlyRent)})`)
+                  .join(' & ')
               : 'No current tenant'
-            
+
             return (
               <li key={property.id} className="rounded-xl border border-border bg-surface p-4 shadow-card">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -268,7 +267,7 @@ export default function PropertiesPage({ type, title }) {
                     </p>
                     <p className="mt-0.5 text-xs text-ink-soft">{property.address}</p>
                     <p className="mt-2 text-sm text-ink">
-                      Rent {formatCurrency(property.monthlyRent)} · {tenantNames}
+                      Standard rent {formatCurrency(property.monthlyRent)} · {tenantNames}
                     </p>
                   </button>
                   <div className="flex flex-wrap items-center gap-2">
@@ -310,7 +309,7 @@ export default function PropertiesPage({ type, title }) {
             <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Monthly rent (Rs.)">
+            <Field label="Standard monthly rent (Rs.)" hint="Only a default. The real rent is set for each tenant when you assign them.">
               <input type="number" min="0" step="0.01" className={inputClass} value={form.monthlyRent} onChange={(e) => setForm({ ...form, monthlyRent: e.target.value })} required />
             </Field>
             <Field label="Deposit (Rs.)">
@@ -343,53 +342,40 @@ export default function PropertiesPage({ type, title }) {
           <div className="space-y-4 text-sm">
             <StatusBadge status={detail.status} />
             <p className="text-ink-soft">{detail.address}</p>
-            <p>Monthly rent {formatCurrency(detail.monthlyRent)}</p>
+            <p>Standard monthly rent {formatCurrency(detail.monthlyRent)}</p>
             {detail.deposit != null && <p>Deposit {formatCurrency(detail.deposit)}</p>}
             
-            {/* Current occupants section */}
             {occupancy.get(detail.id) ? (
               <div className="space-y-3 rounded-lg border border-border bg-ink/5 p-3">
-                <h3 className="font-display font-semibold text-ink">Who is in this {type === 'HOUSE' ? 'house' : 'room'}</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display font-semibold text-ink">Who is in this {type === 'HOUSE' ? 'house' : 'room'}</h3>
+                  <button type="button" className={btnSecondary} onClick={() => setTermsTarget(occupancy.get(detail.id))}>
+                    Edit tenant terms
+                  </button>
+                </div>
                 <div className="space-y-4">
-                  {/* Tenant 1 */}
-                  <div className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4">
-                    {occupancy.get(detail.id).tenant?.photoUrl && (
-                      <img 
-                        src={occupancy.get(detail.id).tenant.photoUrl} 
-                        alt={occupancy.get(detail.id).tenant.fullName}
-                        className="h-40 w-40 rounded-lg object-cover shadow-md"
-                      />
-                    )}
-                    <div>
-                      <p className="font-semibold text-ink">{occupancy.get(detail.id).tenant?.fullName}</p>
-                      <p className="text-xs text-ink-soft">Since {formatDate(occupancy.get(detail.id).startDate)}</p>
-                      <p className="text-xs text-ink-soft">{formatCurrency(occupancy.get(detail.id).monthlyRent)}/month</p>
-                    </div>
-                  </div>
-                  
-                  {/* Tenant 2 (if exists) */}
-                  {occupancy.get(detail.id).tenant2 && (
-                    <div className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4">
-                      {occupancy.get(detail.id).tenant2?.photoUrl && (
-                        <img 
-                          src={occupancy.get(detail.id).tenant2.photoUrl} 
-                          alt={occupancy.get(detail.id).tenant2.fullName}
+                  {getOccupants(occupancy.get(detail.id)).map((occupant, index) => (
+                    <div key={occupant.id ?? index} className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4">
+                      {occupant.tenant?.photoUrl && (
+                        <img
+                          src={occupant.tenant.photoUrl}
+                          alt={occupant.tenant.fullName}
                           className="h-40 w-40 rounded-lg object-cover shadow-md"
                         />
                       )}
                       <div>
-                        <p className="font-semibold text-ink">{occupancy.get(detail.id).tenant2?.fullName}</p>
-                        <p className="text-xs text-ink-soft">Since {formatDate(occupancy.get(detail.id).startDate)}</p>
-                        <p className="text-xs text-ink-soft">{formatCurrency(occupancy.get(detail.id).monthlyRent)}/month</p>
+                        <p className="font-semibold text-ink">{occupant.tenant?.fullName}</p>
+                        <p className="text-xs text-ink-soft">Since {formatDate(occupant.startDate)}</p>
+                        <p className="text-xs text-ink-soft">{formatCurrency(occupant.monthlyRent)}/month</p>
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
             ) : (
               <p className="text-ink-soft">No current tenant.</p>
             )}
-            
+
             <h3 className="font-display font-semibold text-ink">Rental history</h3>
             {history.length === 0 ? (
               <p className="text-ink-soft">No rentals recorded yet.</p>
@@ -398,7 +384,7 @@ export default function PropertiesPage({ type, title }) {
                 {history.map((rental) => (
                   <li key={rental.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                     <span>
-                      {rental.tenant?.fullName} · {formatDate(rental.startDate)} – {formatDate(rental.endDate)}
+                      {occupantNames(rental)} · {formatDate(rental.startDate)} – {formatDate(rental.endDate)}
                     </span>
                     <StatusBadge status={rental.status} />
                   </li>
@@ -416,39 +402,15 @@ export default function PropertiesPage({ type, title }) {
             : 'Creates a new rental for this property. It will not overwrite any past occupancy.'}
         </p>
         <form onSubmit={submitChange} className="space-y-3">
-          <Field label="First tenant">
-            <select className={inputClass} value={changeForm.newTenantId} onChange={(e) => setChangeForm({ ...changeForm, newTenantId: e.target.value })} required>
-              <option value="">Select tenant</option>
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.fullName}
-                </option>
-              ))}
-            </select>
+          <OccupantsForm
+            tenants={tenants}
+            occupants={changeForm.occupants}
+            onChange={(occupants) => setChangeForm({ ...changeForm, occupants })}
+            standardRent={changeOpen?.monthlyRent}
+          />
+          <Field label="Deposit (Rs.)">
+            <input type="number" min="0" step="0.01" className={inputClass} value={changeForm.deposit} onChange={(e) => setChangeForm({ ...changeForm, deposit: e.target.value })} />
           </Field>
-          <Field label="Second tenant (optional)">
-            <select className={inputClass} value={changeForm.newTenant2Id} onChange={(e) => setChangeForm({ ...changeForm, newTenant2Id: e.target.value })}>
-              <option value="">No second tenant</option>
-              {tenants
-                .filter((t) => t.id !== Number(changeForm.newTenantId))
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.fullName}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Start date">
-            <input type="date" className={inputClass} value={changeForm.newStartDate} onChange={(e) => setChangeForm({ ...changeForm, newStartDate: e.target.value })} required />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Monthly rent (Rs.)">
-              <input type="number" min="0" step="0.01" className={inputClass} value={changeForm.monthlyRent} onChange={(e) => setChangeForm({ ...changeForm, monthlyRent: e.target.value })} />
-            </Field>
-            <Field label="Deposit (Rs.)">
-              <input type="number" min="0" step="0.01" className={inputClass} value={changeForm.deposit} onChange={(e) => setChangeForm({ ...changeForm, deposit: e.target.value })} />
-            </Field>
-          </div>
           <Field label="Notes">
             <textarea className={inputClass} rows={2} value={changeForm.notes} onChange={(e) => setChangeForm({ ...changeForm, notes: e.target.value })} />
           </Field>
@@ -462,6 +424,8 @@ export default function PropertiesPage({ type, title }) {
           </div>
         </form>
       </Modal>
+
+      <OccupantTermsModal rental={termsTarget} onClose={() => setTermsTarget(null)} onSaved={() => load()} />
 
       <ConfirmDialog
         open={!!deleteTarget}

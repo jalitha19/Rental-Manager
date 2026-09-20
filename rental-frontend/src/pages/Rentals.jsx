@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { listRentals, createRental, endRental, changeTenant, deleteRental } from '../services/rentalService'
 import { listPayments } from '../services/paymentService'
 import { listProperties } from '../services/propertyService'
@@ -11,6 +11,9 @@ import EmptyState from '../components/EmptyState'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Field, { inputClass, btnPrimary, btnSecondary } from '../components/Field'
+import OccupantsForm from '../components/OccupantsForm'
+import OccupantTermsModal from '../components/OccupantTermsModal'
+import { emptyOccupant, getOccupants, toOccupantPayload } from '../utils/occupants'
 
 export default function Rentals() {
   const { push } = useToast()
@@ -23,9 +26,7 @@ export default function Rentals() {
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState({
     propertyId: '',
-    tenantId: '',
-    startDate: todayIso(),
-    monthlyRent: '',
+    occupants: [emptyOccupant(todayIso(), '')],
     deposit: '',
     paymentDueDay: '1',
     notes: '',
@@ -35,11 +36,10 @@ export default function Rentals() {
   const [endForm, setEndForm] = useState({ endDate: todayIso(), status: 'COMPLETED', notes: '' })
   const [changeTarget, setChangeTarget] = useState(null)
   const [changeForm, setChangeForm] = useState({
-    newTenantId: '',
-    newStartDate: todayIso(),
-    monthlyRent: '',
+    occupants: [emptyOccupant(todayIso(), '')],
     paymentDueDay: '1',
   })
+  const [termsTarget, setTermsTarget] = useState(null)
   const [busy, setBusy] = useState(false)
   const [occupiedIds, setOccupiedIds] = useState(() => new Set())
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -99,9 +99,31 @@ export default function Rentals() {
     setForm((f) => ({
       ...f,
       propertyId,
-      monthlyRent: property?.monthlyRent ?? f.monthlyRent,
+      occupants: f.occupants.map((o) => ({ ...o, monthlyRent: property?.monthlyRent ?? o.monthlyRent })),
       deposit: property?.deposit ?? f.deposit,
     }))
+  }
+
+  function openCreate() {
+    setForm({
+      propertyId: '',
+      occupants: [emptyOccupant(todayIso(), '')],
+      deposit: '',
+      paymentDueDay: '1',
+      notes: '',
+    })
+    setCreateOpen(true)
+  }
+
+  function openChange(rental) {
+    const existing = getOccupants(rental)
+    const property = properties.find((p) => p.id === rental.property?.id)
+    const startingRent = existing.length === 1 ? existing[0].monthlyRent : property?.monthlyRent
+    setChangeTarget(rental)
+    setChangeForm({
+      occupants: [emptyOccupant(todayIso(), startingRent ?? '')],
+      paymentDueDay: rental.paymentDueDay ?? 1,
+    })
   }
 
   async function save(e) {
@@ -110,9 +132,7 @@ export default function Rentals() {
     try {
       await createRental({
         propertyId: Number(form.propertyId),
-        tenantId: Number(form.tenantId),
-        startDate: form.startDate,
-        monthlyRent: form.monthlyRent === '' ? null : Number(form.monthlyRent),
+        occupants: toOccupantPayload(form.occupants),
         deposit: form.deposit === '' ? null : Number(form.deposit),
         paymentDueDay: form.paymentDueDay ? Number(form.paymentDueDay) : null,
         notes: form.notes || null,
@@ -146,9 +166,7 @@ export default function Rentals() {
     setSaving(true)
     try {
       await changeTenant(changeTarget.property.id, {
-        newTenantId: Number(changeForm.newTenantId),
-        newStartDate: changeForm.newStartDate,
-        monthlyRent: changeForm.monthlyRent === '' ? null : Number(changeForm.monthlyRent),
+        occupants: toOccupantPayload(changeForm.occupants),
         paymentDueDay: changeForm.paymentDueDay ? Number(changeForm.paymentDueDay) : null,
       })
       push('Tenant changed. Old rental kept in history.')
@@ -182,14 +200,31 @@ export default function Rentals() {
         listPayments({ periodMonth: `${printMonth}-01` }),
       ])
       const monthStart = `${printMonth}-01`
-      const monthEnd = `${printMonth}-${new Date(Number(printMonth.slice(0, 4)), Number(printMonth.slice(5, 7)), 0).getDate()}`
-      const rentals = allRentals.filter((rental) => {
-        const startDate = String(rental.startDate || '').slice(0, 10)
-        const endDate = rental.endDate ? String(rental.endDate).slice(0, 10) : null
-        return startDate <= monthEnd && (!endDate || endDate >= monthStart)
-      })
-      const paymentsByRentalId = new Map(monthlyPayments.map((payment) => [String(payment.rental?.id), payment]))
-      setMonthlyPrintTarget({ month: printMonth, rentals, paymentsByRentalId })
+      const monthEnd = `${printMonth}-${String(new Date(Number(printMonth.slice(0, 4)), Number(printMonth.slice(5, 7)), 0).getDate()).padStart(2, '0')}`
+      const paymentsByOccupantId = new Map()
+      const paymentsByRentalId = new Map()
+      for (const payment of monthlyPayments) {
+        if (payment.rentalTenantId != null) {
+          paymentsByOccupantId.set(String(payment.rentalTenantId), payment)
+        } else {
+          paymentsByRentalId.set(String(payment.rental?.id), payment)
+        }
+      }
+      const rows = []
+      for (const rental of allRentals) {
+        for (const occupant of getOccupants(rental)) {
+          const startDate = String(occupant.startDate || '').slice(0, 10)
+          const endDate = occupant.endDate ? String(occupant.endDate).slice(0, 10) : null
+          if (startDate <= monthEnd && (!endDate || endDate >= monthStart)) {
+            const payment =
+              (occupant.id != null && paymentsByOccupantId.get(String(occupant.id))) ||
+              paymentsByRentalId.get(String(rental.id)) ||
+              null
+            rows.push({ key: `${rental.id}-${occupant.id ?? occupant.tenant?.id}`, rental, occupant, payment })
+          }
+        }
+      }
+      setMonthlyPrintTarget({ month: printMonth, rows })
     } catch (err) {
       push(getErrorMessage(err, 'Could not prepare the monthly report.'), 'error')
     }
@@ -211,7 +246,7 @@ export default function Rentals() {
           <button type="button" className={btnSecondary} onClick={printMonthlyReport}>
             Print month
           </button>
-          <button type="button" className={btnPrimary} onClick={() => setCreateOpen(true)}>
+          <button type="button" className={btnPrimary} onClick={openCreate}>
             New rental
           </button>
         </div>
@@ -250,13 +285,20 @@ export default function Rentals() {
                   <p className="font-semibold text-ink">
                     {rental.property?.propertyCode} · {rental.property?.name}
                   </p>
-                  <p className="text-sm text-ink-soft">
-                    {rental.tenant?.fullName} · {formatDate(rental.startDate)} – {formatDate(rental.endDate)} ·{' '}
-                    {formatCurrency(rental.monthlyRent)}
-                  </p>
+                  <ul className="mt-1 space-y-0.5 text-sm text-ink-soft">
+                    {getOccupants(rental).map((occupant, index) => (
+                      <li key={occupant.id ?? index}>
+                        {occupant.tenant?.fullName} · {formatDate(occupant.startDate)} – {formatDate(occupant.endDate)} ·{' '}
+                        {formatCurrency(occupant.monthlyRent)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={rental.status} />
+                  <button type="button" className={btnSecondary} onClick={() => setTermsTarget(rental)}>
+                    Edit tenant terms
+                  </button>
                   <button type="button" className={btnSecondary} onClick={() => setPrintTarget(rental)}>
                     Print details
                   </button>
@@ -265,15 +307,7 @@ export default function Rentals() {
                       <button
                         type="button"
                         className={btnSecondary}
-                        onClick={() => {
-                          setChangeTarget(rental)
-                          setChangeForm({
-                            newTenantId: '',
-                            newStartDate: todayIso(),
-                            monthlyRent: rental.monthlyRent ?? '',
-                            paymentDueDay: rental.paymentDueDay ?? 1,
-                          })
-                        }}
+                        onClick={() => openChange(rental)}
                       >
                         Change tenant
                       </button>
@@ -313,26 +347,14 @@ export default function Rentals() {
               ))}
             </select>
           </Field>
-          <Field label="Tenant">
-            <select className={inputClass} value={form.tenantId} onChange={(e) => setForm({ ...form, tenantId: e.target.value })} required>
-              <option value="">Select tenant</option>
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Monthly rent (Rs.)">
-              <input type="number" min="0" step="0.01" className={inputClass} value={form.monthlyRent} onChange={(e) => setForm({ ...form, monthlyRent: e.target.value })} />
-            </Field>
-            <Field label="Due day">
-              <input type="number" min="1" max="31" className={inputClass} value={form.paymentDueDay} onChange={(e) => setForm({ ...form, paymentDueDay: e.target.value })} />
-            </Field>
-          </div>
-          <Field label="Start date">
-            <input type="date" className={inputClass} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required />
+          <OccupantsForm
+            tenants={tenants}
+            occupants={form.occupants}
+            onChange={(occupants) => setForm({ ...form, occupants })}
+            standardRent={properties.find((p) => String(p.id) === String(form.propertyId))?.monthlyRent}
+          />
+          <Field label="Due day">
+            <input type="number" min="1" max="31" className={inputClass} value={form.paymentDueDay} onChange={(e) => setForm({ ...form, paymentDueDay: e.target.value })} />
           </Field>
           <p className="text-xs text-ink-faint">A property cannot have two active rentals. Use Change tenant if it is already occupied.</p>
           <div className="flex justify-end gap-2 pt-2">
@@ -345,22 +367,12 @@ export default function Rentals() {
       <Modal open={!!changeTarget} title="Change tenant" onClose={() => setChangeTarget(null)}>
         <p className="mb-4 text-sm text-ink-soft">Ends the current occupancy and starts a new one. History is kept.</p>
         <form onSubmit={submitChange} className="space-y-3">
-          <Field label="New tenant">
-            <select className={inputClass} value={changeForm.newTenantId} onChange={(e) => setChangeForm({ ...changeForm, newTenantId: e.target.value })} required>
-              <option value="">Select tenant</option>
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="New start date">
-            <input type="date" className={inputClass} value={changeForm.newStartDate} onChange={(e) => setChangeForm({ ...changeForm, newStartDate: e.target.value })} required />
-          </Field>
-          <Field label="Monthly rent (Rs.)">
-            <input type="number" min="0" step="0.01" className={inputClass} value={changeForm.monthlyRent} onChange={(e) => setChangeForm({ ...changeForm, monthlyRent: e.target.value })} />
-          </Field>
+          <OccupantsForm
+            tenants={tenants}
+            occupants={changeForm.occupants}
+            onChange={(occupants) => setChangeForm({ ...changeForm, occupants })}
+            standardRent={properties.find((p) => p.id === changeTarget?.property?.id)?.monthlyRent}
+          />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className={btnSecondary} onClick={() => setChangeTarget(null)}>Cancel</button>
             <button type="submit" className={btnPrimary} disabled={saving}>{saving ? 'Saving…' : 'Change tenant'}</button>
@@ -391,6 +403,12 @@ export default function Rentals() {
           </div>
         </form>
       </Modal>
+
+      <OccupantTermsModal
+        rental={termsTarget}
+        onClose={() => setTermsTarget(null)}
+        onSaved={() => Promise.all([load(), refreshLookups()])}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -426,10 +444,15 @@ export default function Rentals() {
           <section className="print-sheet-section">
             <h2>Occupancy</h2>
             <div className="print-grid">
-              <div><span>Tenant</span><strong>{printTarget.tenant?.fullName || '—'}</strong></div>
-              {printTarget.tenant2 && <div><span>Additional tenant</span><strong>{printTarget.tenant2.fullName}</strong></div>}
+              {getOccupants(printTarget).map((occupant, index) => (
+                <Fragment key={occupant.id ?? index}>
+                  <div><span>{index === 0 ? 'Tenant' : 'Additional tenant'}</span><strong>{occupant.tenant?.fullName || '—'}</strong></div>
+                  <div><span>Lives here since</span><strong>{formatDate(occupant.startDate)}</strong></div>
+                  <div><span>Monthly rent</span><strong>{formatCurrency(occupant.monthlyRent)}</strong></div>
+                </Fragment>
+              ))}
               <div><span>Status</span><strong>{printTarget.status || '—'}</strong></div>
-              <div><span>Start date</span><strong>{formatDate(printTarget.startDate)}</strong></div>
+              <div><span>Rental start date</span><strong>{formatDate(printTarget.startDate)}</strong></div>
               <div><span>End date</span><strong>{formatDate(printTarget.endDate)}</strong></div>
             </div>
           </section>
@@ -437,7 +460,7 @@ export default function Rentals() {
           <section className="print-sheet-section">
             <h2>Financial terms</h2>
             <div className="print-grid">
-              <div><span>Monthly rent</span><strong>{formatCurrency(printTarget.monthlyRent)}</strong></div>
+              <div><span>Total monthly rent</span><strong>{formatCurrency(printTarget.monthlyRent)}</strong></div>
               <div><span>Deposit</span><strong>{formatCurrency(printTarget.deposit)}</strong></div>
               <div><span>Payment due day</span><strong>{printTarget.paymentDueDay ? `Day ${printTarget.paymentDueDay} of each month` : '—'}</strong></div>
             </div>
@@ -464,7 +487,7 @@ export default function Rentals() {
               <p className="print-sheet-kicker">Monthly rental report</p>
               <h1>{new Date(`${monthlyPrintTarget.month}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h1>
             </div>
-            <p className="print-sheet-reference">{monthlyPrintTarget.rentals.length} rental{monthlyPrintTarget.rentals.length === 1 ? '' : 's'}</p>
+            <p className="print-sheet-reference">{monthlyPrintTarget.rows.length} tenant{monthlyPrintTarget.rows.length === 1 ? '' : 's'}</p>
           </header>
 
           <table className="monthly-print-table">
@@ -479,27 +502,22 @@ export default function Rentals() {
               </tr>
             </thead>
             <tbody>
-              {monthlyPrintTarget.rentals.map((rental) => (
-                <tr key={rental.id}>
-                  {(() => {
-                    const payment = monthlyPrintTarget.paymentsByRentalId.get(String(rental.id))
-                    const amountPaid = Number(payment?.amountPaid ?? 0)
-                    const amountDue = Number(payment?.amountDue ?? rental.monthlyRent ?? 0)
-                    const balance = Math.max(amountDue - amountPaid, 0)
-                    return (
-                      <>
-                  <td><strong>{rental.property?.propertyCode || '—'}</strong><span>{rental.property?.name || '—'}</span></td>
-                  <td><strong>{rental.tenant?.fullName || '—'}</strong>{rental.tenant2 && <span>{rental.tenant2.fullName}</span>}</td>
-                  <td>{formatDate(rental.startDate)} – {formatDate(rental.endDate)}</td>
-                  <td>{rental.status || '—'}</td>
-                  <td><strong>{payment?.effectiveStatus || 'NOT GENERATED'}</strong><span>{formatCurrency(amountPaid)} paid · {formatCurrency(balance)} due</span></td>
-                  <td className="monthly-print-number">{formatCurrency(rental.monthlyRent)}</td>
-                      </>
-                    )
-                  })()}
-                </tr>
-              ))}
-              {monthlyPrintTarget.rentals.length === 0 && (
+              {monthlyPrintTarget.rows.map(({ key, rental, occupant, payment }) => {
+                const amountPaid = Number(payment?.amountPaid ?? 0)
+                const amountDue = Number(payment?.amountDue ?? occupant.monthlyRent ?? 0)
+                const balance = Math.max(amountDue - amountPaid, 0)
+                return (
+                  <tr key={key}>
+                    <td><strong>{rental.property?.propertyCode || '—'}</strong><span>{rental.property?.name || '—'}</span></td>
+                    <td><strong>{occupant.tenant?.fullName || '—'}</strong></td>
+                    <td>{formatDate(occupant.startDate)} – {formatDate(occupant.endDate)}</td>
+                    <td>{rental.status || '—'}</td>
+                    <td><strong>{payment?.effectiveStatus || 'NOT GENERATED'}</strong><span>{formatCurrency(amountPaid)} paid · {formatCurrency(balance)} due</span></td>
+                    <td className="monthly-print-number">{formatCurrency(occupant.monthlyRent)}</td>
+                  </tr>
+                )
+              })}
+              {monthlyPrintTarget.rows.length === 0 && (
                 <tr><td colSpan="6" className="monthly-print-empty">No rentals were active during this month.</td></tr>
               )}
             </tbody>
