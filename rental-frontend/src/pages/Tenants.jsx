@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listTenants, searchTenants, createTenant, deleteTenant } from '../services/tenantService'
+import { listTenants, searchTenants, createTenant, deleteTenant, deleteTenantHistory } from '../services/tenantService'
 import { getErrorMessage } from '../services/api'
 import { uploadTenantPhoto, deleteTenantPhoto } from '../services/supabaseStorage'
 import { useToast } from '../contexts/ToastContext'
@@ -31,6 +31,7 @@ export default function Tenants() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [historyDeleteTarget, setHistoryDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
 
   async function load(search = query) {
@@ -80,31 +81,52 @@ export default function Tenants() {
     }
   }
 
+  async function deleteTenantAndPhoto(tenantToDelete) {
+    await deleteTenant(tenantToDelete.id)
+    push('Tenant deleted from database')
+
+    if (tenantToDelete.photoUrl) {
+      try {
+        await deleteTenantPhoto(tenantToDelete.photoUrl)
+        push('Photo also deleted from storage', 'success')
+      } catch (photoErr) {
+        console.error('Photo deletion failed:', photoErr)
+        push('Tenant deleted, but photo may still be in storage. Check browser console for details.', 'warning')
+      }
+    }
+
+    await load()
+  }
+
   async function confirmDelete() {
     setBusy(true)
+    const tenantToDelete = deleteTarget
     try {
-      const tenantToDelete = deleteTarget
-      
-      // Delete tenant from database first
-      await deleteTenant(tenantToDelete.id)
-      push('Tenant deleted from database')
-      
-      // Then delete photo from storage (non-blocking)
-      if (tenantToDelete.photoUrl) {
-        try {
-          await deleteTenantPhoto(tenantToDelete.photoUrl)
-          push('Photo also deleted from storage', 'success')
-        } catch (photoErr) {
-          // Photo deletion failed, but tenant is already deleted from DB
-          console.error('Photo deletion failed:', photoErr)
-          push('Tenant deleted, but photo may still be in storage. Check browser console for details.', 'warning')
-        }
-      }
-      
+      await deleteTenantAndPhoto(tenantToDelete)
       setDeleteTarget(null)
-      await load()
     } catch (err) {
-      push(getErrorMessage(err, 'Could not delete tenant.'), 'error')
+      // If it's blocked by rental/payment history, offer to clear that history first.
+      if (err?.response?.status === 400 || err?.response?.status === 409) {
+        setDeleteTarget(null)
+        setHistoryDeleteTarget(tenantToDelete)
+      } else {
+        push(getErrorMessage(err, 'Could not delete tenant.'), 'error')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmHistoryDelete() {
+    setBusy(true)
+    const tenantToDelete = historyDeleteTarget
+    try {
+      await deleteTenantHistory(tenantToDelete.id)
+      push('Rental & payment history deleted')
+      await deleteTenantAndPhoto(tenantToDelete)
+      setHistoryDeleteTarget(null)
+    } catch (err) {
+      push(getErrorMessage(err, 'Could not delete this tenant\'s history.'), 'error')
     } finally {
       setBusy(false)
     }
@@ -235,12 +257,23 @@ export default function Tenants() {
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete tenant?"
-        message="Tenants with rental history cannot be deleted, so past payments stay intact."
+        message="If this tenant has rental or payment history, you'll be asked whether to delete that too."
         confirmLabel="Delete"
         danger
         busy={busy}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
+      />
+
+      <ConfirmDialog
+        open={!!historyDeleteTarget}
+        title="Delete rental & payment history?"
+        message={`${historyDeleteTarget?.fullName ?? 'This tenant'} has rental and payment history. Deleting it is permanent and cannot be undone. The tenant will then be deleted too.`}
+        confirmLabel="Delete history & tenant"
+        danger
+        busy={busy}
+        onClose={() => setHistoryDeleteTarget(null)}
+        onConfirm={confirmHistoryDelete}
       />
     </div>
   )

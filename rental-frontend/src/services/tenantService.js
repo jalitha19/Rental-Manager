@@ -24,6 +24,10 @@ export function deleteTenant(id) {
   return api.delete(`/tenants/${id}`)
 }
 
+export function deleteTenantHistory(id) {
+  return api.delete(`/tenants/${id}/history`)
+}
+
 export function addPhone(tenantId, payload) {
   return api.post(`/tenants/${tenantId}/phones`, payload).then((r) => r.data)
 }

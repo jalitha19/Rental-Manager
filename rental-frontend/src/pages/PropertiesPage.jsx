@@ -20,6 +20,7 @@ const EMPTY_FORM = {
   name: '',
   address: '',
   monthlyRent: '',
+  rentEffectiveFrom: todayIso(),
   deposit: '',
   status: 'AVAILABLE',
   notes: '',
@@ -98,6 +99,7 @@ export default function PropertiesPage({ type, title }) {
       name: property.name ?? '',
       address: property.address ?? '',
       monthlyRent: property.monthlyRent ?? '',
+      rentEffectiveFrom: todayIso(),
       deposit: property.deposit ?? '',
       status: property.status ?? 'AVAILABLE',
       notes: property.notes ?? '',
@@ -114,6 +116,7 @@ export default function PropertiesPage({ type, title }) {
       name: form.name.trim(),
       address: form.address.trim(),
       monthlyRent: Number(form.monthlyRent),
+      rentEffectiveFrom: form.rentEffectiveFrom || null,
       deposit: form.deposit === '' ? null : Number(form.deposit),
       status: form.status,
       notes: form.notes || null,
@@ -312,6 +315,11 @@ export default function PropertiesPage({ type, title }) {
             <Field label="Standard monthly rent (Rs.)" hint="Only a default. The real rent is set for each tenant when you assign them.">
               <input type="number" min="0" step="0.01" className={inputClass} value={form.monthlyRent} onChange={(e) => setForm({ ...form, monthlyRent: e.target.value })} required />
             </Field>
+            {editing && Number(form.monthlyRent) !== Number(editing.monthlyRent) && (
+              <Field label="New rate effective from" hint="The old rate is kept in this property's rate history, not overwritten.">
+                <input type="date" className={inputClass} value={form.rentEffectiveFrom} onChange={(e) => setForm({ ...form, rentEffectiveFrom: e.target.value })} required />
+              </Field>
+            )}
             <Field label="Deposit (Rs.)">
               <input type="number" min="0" step="0.01" className={inputClass} value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} />
             </Field>
@@ -344,6 +352,18 @@ export default function PropertiesPage({ type, title }) {
             <p className="text-ink-soft">{detail.address}</p>
             <p>Standard monthly rent {formatCurrency(detail.monthlyRent)}</p>
             {detail.deposit != null && <p>Deposit {formatCurrency(detail.deposit)}</p>}
+            {detail.rentHistory?.length > 1 && (
+              <details className="rounded-lg border border-border p-3">
+                <summary className="cursor-pointer text-sm font-medium text-ink">Standard rate history</summary>
+                <ul className="mt-2 space-y-1 text-sm text-ink-soft">
+                  {detail.rentHistory.map((entry) => (
+                    <li key={entry.id}>
+                      {formatCurrency(entry.monthlyRent)} since {formatDate(entry.effectiveFrom)}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
             
             {occupancy.get(detail.id) ? (
               <div className="space-y-3 rounded-lg border border-border bg-ink/5 p-3">

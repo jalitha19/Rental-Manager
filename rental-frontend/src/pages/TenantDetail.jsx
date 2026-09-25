@@ -321,6 +321,7 @@ export default function TenantDetail() {
               <li key={payment.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
                   {formatMonth(payment.periodMonth)} · {payment.rental?.property?.propertyCode} ·{' '}
+                  {payment.paymentDate ? `Paid ${formatDate(payment.paymentDate)}` : `Due ${formatDate(payment.dueDate)}`} ·{' '}
                   {formatCurrency(payment.amountPaid)} / {formatCurrency(payment.amountDue)}
                 </span>
                 <StatusBadge status={payment.effectiveStatus} />
@@ -524,6 +525,7 @@ export default function TenantDetail() {
                 {printTarget.payments.map((payment) => (
                   <div key={payment.id} className="print-history-row">
                     <span>{formatMonth(payment.periodMonth)} · {payment.rental?.property?.propertyCode || '—'}</span>
+                    <span>{payment.paymentDate ? `Paid ${formatDate(payment.paymentDate)}` : `Due ${formatDate(payment.dueDate)}`}</span>
                     <span>{formatCurrency(payment.amountPaid)} / {formatCurrency(payment.amountDue)}</span>
                     <span>{payment.effectiveStatus}</span>
                   </div>
