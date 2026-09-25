@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listPayments, updatePayment, markPaymentPaid, generateCurrentMonthPayments, deletePayment } from '../services/paymentService'
+import { listPayments, updatePayment, markPaymentPaid, generateCurrentMonthPayments } from '../services/paymentService'
 import { getErrorMessage } from '../services/api'
 import { formatCurrency, formatDate, formatMonth, firstOfMonthIso, todayIso } from '../utils/format'
 import { useToast } from '../contexts/ToastContext'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
-import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import Field, { inputClass, btnPrimary, btnSecondary } from '../components/Field'
 
@@ -39,7 +38,6 @@ export default function Payments() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState(null)
 
   async function load(nextMonth = month, nextYear = year) {
     setLoading(true)
@@ -144,20 +142,6 @@ export default function Payments() {
     }
   }
 
-  async function confirmDelete() {
-    setSaving(true)
-    try {
-      await deletePayment(deleteTarget.id)
-      push('Payment deleted')
-      setDeleteTarget(null)
-      await load()
-    } catch (err) {
-      push(getErrorMessage(err), 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -245,9 +229,6 @@ export default function Payments() {
                     <button type="button" className={btnSecondary} onClick={() => openEdit(payment)}>
                       Edit
                     </button>
-                    <button type="button" className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-danger hover:bg-danger-soft" onClick={() => setDeleteTarget(payment)}>
-                      Delete
-                    </button>
                   </div>
                 </div>
               </li>
@@ -328,17 +309,6 @@ export default function Payments() {
           </div>
         </form>
       </Modal>
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete this payment?"
-        message="This payment record will be permanently removed from the rental history."
-        confirmLabel="Delete"
-        danger
-        busy={saving}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={confirmDelete}
-      />
     </div>
   )
 }
