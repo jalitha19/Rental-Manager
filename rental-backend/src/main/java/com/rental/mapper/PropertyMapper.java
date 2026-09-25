@@ -1,10 +1,14 @@
 package com.rental.mapper;
 
+import com.rental.dto.PropertyRentHistoryResponse;
 import com.rental.dto.PropertyRequest;
 import com.rental.dto.PropertyResponse;
 import com.rental.entity.Property;
+import com.rental.entity.PropertyRentHistory;
 import com.rental.entity.enums.PropertyStatus;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class PropertyMapper {
@@ -36,6 +40,10 @@ public class PropertyMapper {
     }
 
     public PropertyResponse toResponse(Property property) {
+        return toResponse(property, List.of());
+    }
+
+    public PropertyResponse toResponse(Property property, List<PropertyRentHistory> rentHistory) {
         return new PropertyResponse(
                 property.getId(),
                 property.getPropertyCode(),
@@ -47,7 +55,16 @@ public class PropertyMapper {
                 property.getStatus(),
                 property.getNotes(),
                 property.getCreatedAt(),
-                property.getUpdatedAt()
+                property.getUpdatedAt(),
+                rentHistory.stream().map(this::toRentHistoryResponse).toList()
+        );
+    }
+
+    public PropertyRentHistoryResponse toRentHistoryResponse(PropertyRentHistory history) {
+        return new PropertyRentHistoryResponse(
+                history.getId(),
+                history.getMonthlyRent(),
+                history.getEffectiveFrom()
         );
     }
 }

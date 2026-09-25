@@ -24,6 +24,10 @@ public interface RentPaymentRepository extends JpaRepository<RentPayment, Long> 
     @Query("delete from RentPayment p where p.rental.id = :rentalId")
     void deleteByRentalId(@Param("rentalId") Long rentalId);
 
+    @Modifying(flushAutomatically = true)
+    @Query("delete from RentPayment p where p.rentalTenant.id = :rentalTenantId")
+    void deleteByRentalTenantId(@Param("rentalTenantId") Long rentalTenantId);
+
     @Query("""
             SELECT p FROM RentPayment p
             WHERE (:rentalId IS NULL OR p.rental.id = :rentalId)

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 public record PropertyRequest(
         @NotBlank(message = "Property code is required")
@@ -30,6 +31,13 @@ public record PropertyRequest(
 
         PropertyStatus status,
 
-        String notes
+        String notes,
+
+        /**
+         * Only used when monthlyRent is different from the property's current
+         * rent. Marks the date the new standard rent takes effect for the
+         * rate history. Defaults to today if not sent.
+         */
+        LocalDate rentEffectiveFrom
 ) {
 }

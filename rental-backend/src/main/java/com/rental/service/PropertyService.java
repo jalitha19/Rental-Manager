@@ -3,17 +3,20 @@ package com.rental.service;
 import com.rental.dto.PropertyRequest;
 import com.rental.dto.PropertyResponse;
 import com.rental.entity.Property;
+import com.rental.entity.PropertyRentHistory;
 import com.rental.entity.enums.PropertyStatus;
 import com.rental.entity.enums.PropertyType;
 import com.rental.entity.enums.RentalStatus;
 import com.rental.exception.BusinessRuleException;
 import com.rental.exception.ResourceNotFoundException;
 import com.rental.mapper.PropertyMapper;
+import com.rental.repository.PropertyRentHistoryRepository;
 import com.rental.repository.PropertyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -22,6 +25,7 @@ import java.util.List;
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
+    private final PropertyRentHistoryRepository propertyRentHistoryRepository;
     private final PropertyMapper propertyMapper;
 
     public List<PropertyResponse> list(PropertyType type) {
@@ -36,7 +40,8 @@ public class PropertyService {
     }
 
     public PropertyResponse get(Long id) {
-        return propertyMapper.toResponse(getEntityOrThrow(id));
+        Property property = getEntityOrThrow(id);
+        return propertyMapper.toResponse(property, rentHistoryFor(property.getId()));
     }
 
     public PropertyResponse create(PropertyRequest request) {
@@ -45,7 +50,8 @@ public class PropertyService {
                     "A property with code '" + request.propertyCode() + "' already exists");
         }
         Property saved = propertyRepository.save(propertyMapper.toEntity(request));
-        return propertyMapper.toResponse(saved);
+        recordRentHistory(saved, request.rentEffectiveFrom());
+        return propertyMapper.toResponse(saved, rentHistoryFor(saved.getId()));
     }
 
     public PropertyResponse update(Long id, PropertyRequest request) {
@@ -64,8 +70,41 @@ public class PropertyService {
                     "This property has an active rental. End the rental or change tenant before marking it available.");
         }
 
+        boolean rentChanged = property.getMonthlyRent().compareTo(request.monthlyRent()) != 0;
+
         propertyMapper.updateEntity(property, request);
-        return propertyMapper.toResponse(property);
+
+        if (rentChanged) {
+            recordRentHistory(property, request.rentEffectiveFrom());
+        }
+
+        return propertyMapper.toResponse(property, rentHistoryFor(property.getId()));
+    }
+
+    /**
+     * Adds a new standard-rent history entry. The property's earlier rate is
+     * never overwritten -- it stays in property_rent_history at whatever date
+     * it was recorded.
+     */
+    private void recordRentHistory(Property property, LocalDate effectiveFrom) {
+        List<PropertyRentHistory> existing = rentHistoryFor(property.getId());
+        LocalDate latestRecorded = existing.isEmpty() ? null : existing.get(0).getEffectiveFrom();
+        LocalDate date = effectiveFrom != null ? effectiveFrom : LocalDate.now();
+
+        if (latestRecorded != null && date.isBefore(latestRecorded)) {
+            throw new BusinessRuleException(
+                    "The effective date can't be before the last recorded rate change (" + latestRecorded + ")");
+        }
+
+        propertyRentHistoryRepository.save(PropertyRentHistory.builder()
+                .property(property)
+                .monthlyRent(property.getMonthlyRent())
+                .effectiveFrom(date)
+                .build());
+    }
+
+    private List<PropertyRentHistory> rentHistoryFor(Long propertyId) {
+        return propertyRentHistoryRepository.findByPropertyIdOrderByEffectiveFromDesc(propertyId);
     }
 
     public void delete(Long id) {

@@ -52,6 +52,13 @@ public class TenantController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Permanently erases this tenant's rental and payment history. See {@link com.rental.service.TenantService#deleteHistory}. */
+    @DeleteMapping("/{id}/history")
+    public ResponseEntity<Void> deleteHistory(@PathVariable Long id) {
+        tenantService.deleteHistory(id);
+        return ResponseEntity.noContent().build();
+    }
+
     // ---------- phone numbers ----------
 
     @PostMapping("/{id}/phones")

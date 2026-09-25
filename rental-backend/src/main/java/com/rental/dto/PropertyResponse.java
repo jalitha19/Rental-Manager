@@ -5,6 +5,7 @@ import com.rental.entity.enums.PropertyType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 public record PropertyResponse(
         Long id,
@@ -17,6 +18,7 @@ public record PropertyResponse(
         PropertyStatus status,
         String notes,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        List<PropertyRentHistoryResponse> rentHistory
 ) {
 }
