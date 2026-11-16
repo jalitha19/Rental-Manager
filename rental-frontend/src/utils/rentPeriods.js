@@ -1,5 +1,8 @@
-/** The API stores rent changes by calendar month (the first day of the month).
- * The UI accepts full DD/MM/YYYY dates, but price changes are monthly, never daily. */
+/**
+ * Rent history uses inclusive calendar dates. Gaps are allowed; overlapping
+ * prices are not. A monthly invoice is priced by the first day with a defined
+ * rent rate in that month. Mid-month changes are not prorated automatically.
+ */
 export const monthOf = (date) => String(date ?? '').slice(0, 7)
 
 export function nextMonth(month) {
@@ -14,14 +17,22 @@ export function displayDate(iso) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : ''
 }
 
+/** Accept both the calendar input's ISO value and DD/MM/YYYY pasted values. */
 export function parseDisplayDate(value) {
-  const match = String(value ?? '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!match) return null
-  const [, dd, mm, yyyy] = match
-  const year = Number(yyyy), month = Number(mm), day = Number(dd)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  if (year < 1900 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
-  return `${yyyy}-${mm}-${dd}`
+  const raw = String(value ?? '').trim()
+  let year, month, day
+  let iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (iso) {
+    ;[, year, month, day] = iso
+  } else {
+    const typed = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (!typed) return null
+    ;[, day, month, year] = typed
+  }
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  if (Number(year) < 1900 || date.getUTCFullYear() !== Number(year)
+      || date.getUTCMonth() !== Number(month) - 1 || date.getUTCDate() !== Number(day)) return null
+  return `${year}-${month}-${day}`
 }
 
 export function endOfMonthIso(month) {
@@ -32,35 +43,31 @@ export function endOfMonthIso(month) {
 }
 
 export function initialRentPeriods(startDate, rent) {
-  return [{ startMonth: monthOf(startDate), endMonth: null, monthlyRent: rent ?? '' }]
+  return [{ startDate: parseDisplayDate(startDate) ?? '', endDate: null, monthlyRent: rent ?? '' }]
 }
 
-/** Convert backend monthly rate transitions to separate, fully dated history rows,
- * plus the ongoing price shown in the top (current) form. */
+/** The API serves real daily dates (V8), or legacy first-of-month V7 values. */
 export function scheduleToForm(periods, originalStart, currentRent) {
   const rows = periods?.length ? periods : initialRentPeriods(originalStart, currentRent)
   const historicalPeriods = rows.slice(0, -1).map((entry) => ({
-    startDate: displayDate(`${monthOf(entry.startMonth)}-01`),
-    endDate: displayDate(endOfMonthIso(monthOf(entry.endMonth))),
+    startDate: parseDisplayDate(entry.startDate ?? entry.startMonth) ?? '',
+    // V7 endMonth was inclusive; translate it to the last day of that month.
+    endDate: parseDisplayDate(entry.endDate ?? (entry.endMonth ? endOfMonthIso(monthOf(entry.endMonth)) : '')) ?? '',
     monthlyRent: String(entry.monthlyRent ?? ''),
   }))
-  const latest = rows[rows.length - 1]
+  const latest = rows.at(-1)
+  const currentStart = parseDisplayDate(latest.startDate ?? latest.startMonth) ?? parseDisplayDate(originalStart) ?? ''
   return {
-    currentStartText: displayDate(periods?.length ? `${monthOf(latest.startMonth)}-01` : originalStart),
+    currentStartText: currentStart,
     monthlyRent: String(latest.monthlyRent ?? currentRent ?? ''),
     historicalPeriods,
   }
 }
 
-export function appendHistoricalPeriod(periods) {
-  if ((periods ?? []).length >= 99) return periods
-  const previous = periods.at(-1)
-  const after = previous ? parseDisplayDate(previous.endDate) : null
-  return [...periods, {
-    startDate: after ? displayDate(`${nextMonth(monthOf(after))}-01`) : '',
-    endDate: '',
-    monthlyRent: '',
-  }]
+/** Leave a new period blank: in real life, the next rate may start after a gap. */
+export function appendHistoricalPeriod(periods = []) {
+  if (periods.length >= 99) return periods
+  return [...periods, { startDate: '', endDate: '', monthlyRent: '' }]
 }
 
 export function updateHistoricalPeriod(periods, index, patch) {
@@ -75,50 +82,43 @@ function validRent(value) {
   return value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) >= 0
 }
 
-/**
- * Build a contiguous rate schedule for the existing V7 table. The original
- * occupant start is independent from the current rent's effective month.
- * Existing retained tenants must keep their original start date. New tenants
- * with historical prices get their actual first historical date as stay start.
- * Throws rather than silently dropping invalid, overlapping, or partial dates.
- */
+/** Keep the tenant's move-in date independent of their changes in rent. */
 export function buildRentSchedule({ stayStart, currentStartText, monthlyRent, historicalPeriods = [], retained = false }) {
   const currentStart = parseDisplayDate(currentStartText)
-  if (!currentStart) throw new Error('Enter the current rent start date as DD/MM/YYYY.')
+  if (!currentStart) throw new Error('Select a valid current rent start date.')
+  const today = new Date()
+  const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  if (currentStart > todayLocal) throw new Error('The current rent cannot begin in the future.')
   if (!validRent(monthlyRent)) throw new Error('Enter a valid current monthly rent.')
-  if (!historicalPeriods.length && !retained) {
-    return { stayStartDate: currentStart, rentPeriods: [] }
-  }
-
-  const now = new Date()
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  if (monthOf(currentStart) > thisMonth) throw new Error('Future-effective rent periods are not supported yet.')
-  if (!currentStart.endsWith('-01')) throw new Error('Current rent period must begin on the 1st of its month (DD/MM/YYYY).')
-
+  const current = { startDate: currentStart, endDate: null, monthlyRent: Number(monthlyRent) }
   const result = []
-  let expected = retained ? monthOf(stayStart) : null
   for (let i = 0; i < historicalPeriods.length; i++) {
     const row = historicalPeriods[i]
     const from = parseDisplayDate(row.startDate)
     const until = parseDisplayDate(row.endDate)
-    if (!from || !until) throw new Error(`Historical period ${i + 1}: enter valid DD/MM/YYYY start and end dates.`)
-    if (!from.endsWith('-01')) throw new Error(`Historical period ${i + 1}: start date must be the 1st of its month.`)
-    if (until !== endOfMonthIso(monthOf(until))) throw new Error(`Historical period ${i + 1}: end date must be the last day of its month.`)
+    if (!from || !until) throw new Error(`Historical period ${i + 1}: select valid start and end dates.`)
     if (!validRent(row.monthlyRent)) throw new Error(`Historical period ${i + 1}: enter a valid monthly rent.`)
-    const fromMonth = monthOf(from), untilMonth = monthOf(until)
-    if (untilMonth < fromMonth) throw new Error(`Historical period ${i + 1}: end date is before start date.`)
-    if (expected && fromMonth !== expected) throw new Error(`Historical period ${i + 1} must start in ${displayDate(`${expected}-01`).slice(3)}. No gaps or overlaps are allowed.`)
-    if (!expected) expected = fromMonth
-    result.push({ startMonth: `${fromMonth}-01`, endMonth: `${untilMonth}-01`, monthlyRent: Number(row.monthlyRent) })
-    expected = nextMonth(untilMonth)
+    if (until < from) throw new Error(`Historical period ${i + 1}: end date must be on or after its start date.`)
+    result.push({ startDate: from, endDate: until, monthlyRent: Number(row.monthlyRent) })
   }
-  if (!expected) expected = monthOf(stayStart)
-  if (monthOf(currentStart) !== expected) {
-    throw new Error(`Current rent must start in ${displayDate(`${expected}-01`).slice(3)}. Adjust historical end dates to leave no gaps or overlaps.`)
+  // Sorting permits the administrator to add a forgotten period later.
+  result.sort((a, b) => a.startDate.localeCompare(b.startDate))
+  for (let i = 1; i < result.length; i++) {
+    if (result[i].startDate <= result[i - 1].endDate) {
+      throw new Error('Historical rent periods overlap. Dates may have gaps, but cannot overlap.')
+    }
   }
-  result.push({ startMonth: `${monthOf(currentStart)}-01`, endMonth: null, monthlyRent: Number(monthlyRent) })
+  if (result.length && result.at(-1).endDate >= current.startDate) {
+    throw new Error('Previous rent history overlaps the current rent start date. Gaps are allowed.')
+  }
+  result.push(current)
+  if (!historicalPeriods.length && !retained) {
+    // Keep the legacy simple-assignment behavior when no history was entered.
+    return { stayStartDate: currentStart, rentPeriods: [] }
+  }
+  const originalStart = parseDisplayDate(stayStart)
   return {
-    stayStartDate: retained ? stayStart : parseDisplayDate(historicalPeriods[0].startDate),
+    stayStartDate: retained ? originalStart : result[0].startDate,
     rentPeriods: result,
   }
 }
@@ -127,35 +127,20 @@ export function validateRentHistory(state) {
   try { buildRentSchedule(state); return '' } catch (error) { return error.message }
 }
 
-/** Legacy backend wire format, retained for API compatibility. */
 export function rentPeriodsPayload(periods) {
   return (periods ?? []).map((p) => ({
-    startMonth: `${monthOf(p.startMonth)}-01`,
-    endMonth: p.endMonth ? `${monthOf(p.endMonth)}-01` : null,
+    startDate: parseDisplayDate(p.startDate ?? p.startMonth),
+    endDate: p.endDate || p.endMonth ? parseDisplayDate(p.endDate ?? p.endMonth) : null,
     monthlyRent: Number(p.monthlyRent),
   }))
 }
 
-// Backward-compatible old period helpers used only by external callers/tests.
-export function appendRentPeriod(periods) {
-  if (!periods.length) return initialRentPeriods('', '')
-  const result = periods.map((p) => ({ ...p }))
-  const last = result.at(-1)
-  if (!last.endMonth) last.endMonth = last.startMonth
-  result.push({ startMonth: nextMonth(monthOf(last.endMonth)), endMonth: null, monthlyRent: last.monthlyRent })
-  return result
-}
-export function updateRentPeriod(periods, index, patch) {
-  return periods.map((p, i) => i === index ? { ...p, ...patch } : { ...p })
-}
-export function removeRentPeriod(periods, index) {
-  return periods.filter((_, i) => i !== index)
-}
+// Compatibility wrappers for callers still using the monthly helper names.
+export function appendRentPeriod(periods) { return appendHistoricalPeriod(periods) }
+export function updateRentPeriod(periods, index, patch) { return updateHistoricalPeriod(periods, index, patch) }
+export function removeRentPeriod(periods, index) { return removeHistoricalPeriod(periods, index) }
 export function validateRentPeriods(periods, stayStart) {
   if (!periods?.length) return ''
-  try {
-    const form = scheduleToForm(periods, stayStart, periods.at(-1).monthlyRent)
-    buildRentSchedule({ stayStart, ...form, retained: true })
-    return ''
-  } catch (error) { return error.message }
+  const form = scheduleToForm(periods, stayStart, periods.at(-1).monthlyRent)
+  return validateRentHistory({ stayStart, ...form, retained: true })
 }

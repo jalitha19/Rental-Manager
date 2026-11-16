@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { updateRental } from '../services/rentalService'
 import { getErrorMessage } from '../services/api'
 import { getOccupants } from '../utils/occupants'
-import { buildRentSchedule, scheduleToForm, validateRentHistory } from '../utils/rentPeriods'
+import { buildRentSchedule, displayDate, scheduleToForm, validateRentHistory } from '../utils/rentPeriods'
 import { useToast } from '../contexts/ToastContext'
 import Modal from './Modal'
 import RentPeriodsEditor from './RentPeriodsEditor'
@@ -80,8 +80,8 @@ export default function OccupantTermsModal({ rental, onClose, onSaved }) {
               <div className="space-y-2 rounded-lg border border-border bg-ink/[0.025] p-3">
                 <p className="text-xs font-semibold text-ink">Current / present rent</p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Field label="Start date (DD/MM/YYYY)" hint="When today's rent began">
-                    <input type="text" inputMode="numeric" placeholder="01/11/2025"
+                  <Field label="Current rent start date" hint={`When today's rent began${row.currentStartText ? `: ${displayDate(row.currentStartText)}` : ''}`}>
+                    <input type="date"
                       className={inputClass} value={row.currentStartText} required
                       onChange={(e) => update(index, { currentStartText: e.target.value })} />
                   </Field>

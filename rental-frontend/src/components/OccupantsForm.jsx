@@ -48,9 +48,9 @@ export default function OccupantsForm({ tenants, occupants, onChange, standardRe
             <div className="rounded-lg border border-border bg-ink/[0.025] p-3 space-y-2">
               <p className="text-xs font-semibold text-ink">Current / present rent</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Start date (DD/MM/YYYY)" hint="When the current rent price began">
-                  <input type="text" inputMode="numeric" autoComplete="off" placeholder="01/11/2025"
-                    className={inputClass} value={occupant.currentStartText ?? displayDate(occupant.startDate)}
+                <Field label="Current rent start date" hint={`When this price began${occupant.currentStartText ? `: ${displayDate(occupant.currentStartText)}` : ''}`}>
+                  <input type="date"
+                    className={inputClass} value={occupant.currentStartText ?? occupant.startDate ?? ''}
                     readOnly={!editing} required
                     onChange={(e) => update(index, { currentStartText: e.target.value })} />
                 </Field>

@@ -359,7 +359,7 @@ export default function TenantDetail() {
                   {myTerms(rental).rentPeriods.length > 0 && (
                     <span className="mt-1 block text-xs text-ink-soft">
                       Rent price history: {myTerms(rental).rentPeriods.map((period) =>
-                        `${formatMonth(period.startMonth)} – ${period.endMonth ? formatMonth(period.endMonth) : 'Present'}: ${formatCurrency(period.monthlyRent)}`
+                        `${period.startDate ? formatDate(period.startDate) : formatMonth(period.startMonth)} – ${period.endDate ? formatDate(period.endDate) : period.endMonth ? formatMonth(period.endMonth) : 'Present'}: ${formatCurrency(period.monthlyRent)}`
                       ).join('  |  ')}
                     </span>
                   )}

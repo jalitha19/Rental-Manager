@@ -1,13 +1,13 @@
 import Field, { inputClass, btnSecondary } from './Field'
-import { appendHistoricalPeriod, removeHistoricalPeriod, updateHistoricalPeriod } from '../utils/rentPeriods'
+import { appendHistoricalPeriod, displayDate, removeHistoricalPeriod, updateHistoricalPeriod } from '../utils/rentPeriods'
 
-/** Only past price intervals live here. Current price and its start date stay in the fields above. */
+/** Historical prices are optional, individually dated intervals; gaps are valid. */
 export default function RentPeriodsEditor({ periods = [], onChange, readOnly = false }) {
   return (
     <div className="space-y-3 rounded-lg border border-border bg-ink/[0.025] p-3">
       <div>
         <p className="text-sm font-semibold text-ink">Previous rent history</p>
-        <p className="text-xs text-ink-soft">Add each old price below. Use DD/MM/YYYY dates: start on the 1st and end on the last day of the month.</p>
+        <p className="text-xs text-ink-soft">Choose any start and end date from the calendar. Gaps between periods are allowed; overlapping dates are not.</p>
       </div>
       {periods.length === 0 && <p className="text-xs text-ink-faint">No previous rent periods entered. The rent above is the current price.</p>}
       {periods.map((period, index) => (
@@ -17,14 +17,12 @@ export default function RentPeriodsEditor({ periods = [], onChange, readOnly = f
             {!readOnly && <button type="button" className="text-xs font-medium text-danger" onClick={() => onChange(removeHistoricalPeriod(periods, index))}>Remove</button>}
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Field label="Start date (DD/MM/YYYY)">
-              <input type="text" inputMode="numeric" autoComplete="off" placeholder="01/01/2018" className={inputClass}
-                value={period.startDate} readOnly={readOnly} required
+            <Field label="Start date" hint={period.startDate ? `Selected: ${displayDate(period.startDate)}` : 'Choose from calendar'}>
+              <input type="date" className={inputClass} value={period.startDate || ''} readOnly={readOnly} required
                 onChange={(e) => onChange(updateHistoricalPeriod(periods, index, { startDate: e.target.value }))} />
             </Field>
-            <Field label="End date (DD/MM/YYYY)">
-              <input type="text" inputMode="numeric" autoComplete="off" placeholder="31/07/2022" className={inputClass}
-                value={period.endDate} readOnly={readOnly} required
+            <Field label="End date" hint={period.endDate ? `Selected: ${displayDate(period.endDate)}` : 'Choose from calendar'}>
+              <input type="date" className={inputClass} value={period.endDate || ''} readOnly={readOnly} required
                 onChange={(e) => onChange(updateHistoricalPeriod(periods, index, { endDate: e.target.value }))} />
             </Field>
           </div>
@@ -39,8 +37,9 @@ export default function RentPeriodsEditor({ periods = [], onChange, readOnly = f
         + Add next rent period
       </button>}
       <p className="text-xs text-ink-soft">
-        Rent is billed by calendar month. Previous periods must connect without gaps or overlaps and end before the current rent starts.
-        Saving the timeline does not overwrite old invoices or mark rent as paid.
+        A gap is saved as a period with no defined rent; generating payments skips fully uncovered months.
+        If a rent changes mid-month, that month uses the first applicable price (no automatic proration).
+        Saving history does not overwrite existing payment records or mark them paid.
       </p>
     </div>
   )
