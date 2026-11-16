@@ -258,8 +258,11 @@ public class RentalService {
             // Past payments must never be rewritten or deleted by editing tenant terms.
             if (!preserveExisting && untouched && !month.isBefore(thisMonth) && !month.isBefore(firstMonth)
                     && !month.isAfter(lastMonth)) {
-                payment.setAmountDue(tenantRentRateService.rentFor(occupant, month));
-                payment.setDueDate(dueDateFor(rental, month));
+                BigDecimal applicable = tenantRentRateService.rentFor(occupant, month);
+                if (applicable != null) {
+                    payment.setAmountDue(applicable);
+                    payment.setDueDate(dueDateFor(rental, month));
+                }
             }
         }
         if (rental.getStatus() != RentalStatus.ACTIVE || !generateMissing) return;
