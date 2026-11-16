@@ -1,3 +1,5 @@
+import { monthOf, rentPeriodsPayload } from './rentPeriods'
+
 export function getOccupants(rental) {
   if (!rental) return []
   if (rental.occupants?.length) return rental.occupants
@@ -41,6 +43,9 @@ export function toOccupantPayload(occupants) {
       tenantId: Number(o.tenantId),
       startDate: o.startDate,
       monthlyRent: o.monthlyRent === '' || o.monthlyRent == null ? null : Number(o.monthlyRent),
+      ...(o.rentPeriods?.length && (o.editRetainedSchedule || !o.originalTenantId || String(o.originalTenantId) !== String(o.tenantId))
+        ? { rentPeriods: rentPeriodsPayload(o.rentPeriods),
+            generateMissingPayments: !!o.generateMissingPayments } : {}),
     }))
 }
 
@@ -59,6 +64,11 @@ export function prefillCurrentOccupants(rental, fallbackRent = '', today = '') {
         originalStartDate: occupant.startDate,
         startDate: occupant.startDate,
         monthlyRent: occupant.monthlyRent ?? fallbackRent,
+        rentPeriods: [],
+        existingRentPeriods: (occupant.rentPeriods ?? []).map((p) => ({
+          startMonth: monthOf(p.startMonth), endMonth: monthOf(p.endMonth), monthlyRent: p.monthlyRent,
+        })),
+        editRetainedSchedule: false,
       }))
     : [emptyOccupant(today, fallbackRent)]
 }

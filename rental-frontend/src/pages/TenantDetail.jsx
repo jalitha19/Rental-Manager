@@ -199,6 +199,7 @@ export default function TenantDetail() {
       startDate: mine?.startDate ?? rental.startDate,
       endDate: mine?.endDate ?? rental.endDate,
       monthlyRent: mine?.monthlyRent ?? rental.monthlyRent,
+      rentPeriods: mine?.rentPeriods ?? [],
     }
   }
 
@@ -354,7 +355,14 @@ export default function TenantDetail() {
               <li key={rental.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
                   {rental.property?.propertyCode} · {rental.property?.name} · {formatDate(myTerms(rental).startDate)} –{' '}
-                  {formatDate(myTerms(rental).endDate)} · {formatCurrency(myTerms(rental).monthlyRent)}
+                  {formatDate(myTerms(rental).endDate)} · Current/latest rent {formatCurrency(myTerms(rental).monthlyRent)}
+                  {myTerms(rental).rentPeriods.length > 0 && (
+                    <span className="mt-1 block text-xs text-ink-soft">
+                      Rent price history: {myTerms(rental).rentPeriods.map((period) =>
+                        `${formatMonth(period.startMonth)} – ${period.endMonth ? formatMonth(period.endMonth) : 'Present'}: ${formatCurrency(period.monthlyRent)}`
+                      ).join('  |  ')}
+                    </span>
+                  )}
                 </span>
                 <span className="flex items-center gap-3">
                   <StatusBadge status={rental.status} />
