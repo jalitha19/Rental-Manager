@@ -24,7 +24,7 @@ export function getOccupants(rental) {
 }
 
 export function occupantNames(rental) {
-  return getOccupants(rental)
+  return (rental?.status === 'ACTIVE' ? getCurrentOccupants(rental) : getOccupants(rental))
     .map((o) => o.tenant?.fullName)
     .filter(Boolean)
     .join(' & ')
@@ -42,4 +42,23 @@ export function toOccupantPayload(occupants) {
       startDate: o.startDate,
       monthlyRent: o.monthlyRent === '' || o.monthlyRent == null ? null : Number(o.monthlyRent),
     }))
+}
+
+// Only people whose stay has not ended are current occupants.
+// Keep getOccupants() unfiltered for history and monthly reports.
+export function getCurrentOccupants(rental) {
+  return getOccupants(rental).filter((occupant) => !occupant.endDate)
+}
+
+export function prefillCurrentOccupants(rental, fallbackRent = '', today = '') {
+  const current = getCurrentOccupants(rental)
+  return current.length
+    ? current.map((occupant) => ({
+        tenantId: String(occupant.tenant.id),
+        originalTenantId: String(occupant.tenant.id),
+        originalStartDate: occupant.startDate,
+        startDate: occupant.startDate,
+        monthlyRent: occupant.monthlyRent ?? fallbackRent,
+      }))
+    : [emptyOccupant(today, fallbackRent)]
 }

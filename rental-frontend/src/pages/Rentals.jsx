@@ -13,7 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Field, { inputClass, btnPrimary, btnSecondary } from '../components/Field'
 import OccupantsForm from '../components/OccupantsForm'
 import OccupantTermsModal from '../components/OccupantTermsModal'
-import { emptyOccupant, getOccupants, toOccupantPayload } from '../utils/occupants'
+import { emptyOccupant, getOccupants, getCurrentOccupants, prefillCurrentOccupants, toOccupantPayload } from '../utils/occupants'
 
 export default function Rentals() {
   const { push } = useToast()
@@ -116,12 +116,12 @@ export default function Rentals() {
   }
 
   function openChange(rental) {
-    const existing = getOccupants(rental)
+    const existing = getCurrentOccupants(rental)
     const property = properties.find((p) => p.id === rental.property?.id)
     const startingRent = existing.length === 1 ? existing[0].monthlyRent : property?.monthlyRent
     setChangeTarget(rental)
     setChangeForm({
-      occupants: [emptyOccupant(todayIso(), startingRent ?? '')],
+      occupants: prefillCurrentOccupants(rental, startingRent ?? '', todayIso()),
       paymentDueDay: rental.paymentDueDay ?? 1,
     })
   }
@@ -167,9 +167,10 @@ export default function Rentals() {
     try {
       await changeTenant(changeTarget.property.id, {
         occupants: toOccupantPayload(changeForm.occupants),
+        newStartDate: todayIso(),
         paymentDueDay: changeForm.paymentDueDay ? Number(changeForm.paymentDueDay) : null,
       })
-      push('Tenant changed. Old rental kept in history.')
+      push('Occupants updated. Continuing tenants and payment history preserved.')
       setChangeTarget(null)
       await Promise.all([load(), refreshLookups()])
     } catch (err) {
@@ -286,7 +287,7 @@ export default function Rentals() {
                     {rental.property?.propertyCode} · {rental.property?.name}
                   </p>
                   <ul className="mt-1 space-y-0.5 text-sm text-ink-soft">
-                    {getOccupants(rental).map((occupant, index) => (
+                    {(rental.status === 'ACTIVE' ? getCurrentOccupants(rental) : getOccupants(rental)).map((occupant, index) => (
                       <li key={occupant.id ?? index}>
                         {occupant.tenant?.fullName} · {formatDate(occupant.startDate)} – {formatDate(occupant.endDate)} ·{' '}
                         {formatCurrency(occupant.monthlyRent)}
@@ -365,13 +366,14 @@ export default function Rentals() {
       </Modal>
 
       <Modal open={!!changeTarget} title="Change tenant" onClose={() => setChangeTarget(null)}>
-        <p className="mb-4 text-sm text-ink-soft">Ends the current occupancy and starts a new one. History is kept.</p>
+        <p className="mb-4 text-sm text-ink-soft">Current tenants are preselected. Keep a tenant to preserve their stay, replace a tenant, or add a second tenant. Payment history is kept.</p>
         <form onSubmit={submitChange} className="space-y-3">
           <OccupantsForm
             tenants={tenants}
             occupants={changeForm.occupants}
             onChange={(occupants) => setChangeForm({ ...changeForm, occupants })}
             standardRent={properties.find((p) => p.id === changeTarget?.property?.id)?.monthlyRent}
+            changing
           />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className={btnSecondary} onClick={() => setChangeTarget(null)}>Cancel</button>

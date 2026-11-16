@@ -13,7 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Field, { inputClass, btnPrimary, btnSecondary } from '../components/Field'
 import OccupantsForm from '../components/OccupantsForm'
 import OccupantTermsModal from '../components/OccupantTermsModal'
-import { emptyOccupant, getOccupants, occupantNames, toOccupantPayload } from '../utils/occupants'
+import { emptyOccupant, getOccupants, getCurrentOccupants, prefillCurrentOccupants, occupantNames, toOccupantPayload } from '../utils/occupants'
 
 const EMPTY_FORM = {
   propertyCode: '',
@@ -171,11 +171,11 @@ export default function PropertiesPage({ type, title }) {
       }
     }
     const rental = occupancy.get(property.id)
-    const existing = getOccupants(rental)
+    const existing = getCurrentOccupants(rental)
     const startingRent = existing.length === 1 ? existing[0].monthlyRent : property.monthlyRent
     setChangeOpen(property)
     setChangeForm({
-      occupants: [emptyOccupant(todayIso(), startingRent ?? '')],
+      occupants: prefillCurrentOccupants(rental, startingRent ?? '', todayIso()),
       deposit: rental?.deposit ?? property.deposit ?? '',
       paymentDueDay: rental?.paymentDueDay ?? 1,
       notes: '',
@@ -188,11 +188,12 @@ export default function PropertiesPage({ type, title }) {
     try {
       await changeTenant(changeOpen.id, {
         occupants: toOccupantPayload(changeForm.occupants),
+        newStartDate: todayIso(),
         deposit: changeForm.deposit === '' ? null : Number(changeForm.deposit),
         paymentDueDay: changeForm.paymentDueDay ? Number(changeForm.paymentDueDay) : null,
         notes: changeForm.notes || null,
       })
-      push('Tenant changed. Previous rental was kept in history.')
+      push('Room occupants updated. Existing stays and payment history preserved.')
       setChangeOpen(null)
       setDetail(null)
       await load()
@@ -256,7 +257,7 @@ export default function PropertiesPage({ type, title }) {
           {items.map((property) => {
             const rental = occupancy.get(property.id)
             const tenantNames = rental
-              ? getOccupants(rental)
+              ? getCurrentOccupants(rental)
                   .map((o) => `${o.tenant?.fullName} (${formatCurrency(o.monthlyRent)})`)
                   .join(' & ')
               : 'No current tenant'
@@ -374,7 +375,7 @@ export default function PropertiesPage({ type, title }) {
                   </button>
                 </div>
                 <div className="space-y-4">
-                  {getOccupants(occupancy.get(detail.id)).map((occupant, index) => (
+                  {getCurrentOccupants(occupancy.get(detail.id)).map((occupant, index) => (
                     <div key={occupant.id ?? index} className="flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4">
                       {occupant.tenant?.photoUrl && (
                         <img
@@ -418,7 +419,7 @@ export default function PropertiesPage({ type, title }) {
       <Modal open={!!changeOpen} title={occupancy.get(changeOpen?.id) ? 'Change tenant' : 'Assign tenant'} onClose={() => setChangeOpen(null)}>
         <p className="mb-4 text-sm text-ink-soft">
           {occupancy.get(changeOpen?.id)
-            ? 'The current rental stays in history. A new rental is created for the incoming tenant.'
+            ? 'Current tenants are selected below. Keep a tenant selected to preserve their stay and payments, or change their name to replace them. Add another tenant without removing the existing one.'
             : 'Creates a new rental for this property. It will not overwrite any past occupancy.'}
         </p>
         <form onSubmit={submitChange} className="space-y-3">
@@ -427,6 +428,7 @@ export default function PropertiesPage({ type, title }) {
             occupants={changeForm.occupants}
             onChange={(occupants) => setChangeForm({ ...changeForm, occupants })}
             standardRent={changeOpen?.monthlyRent}
+            changing={!!occupancy.get(changeOpen?.id)}
           />
           <Field label="Deposit (Rs.)">
             <input type="number" min="0" step="0.01" className={inputClass} value={changeForm.deposit} onChange={(e) => setChangeForm({ ...changeForm, deposit: e.target.value })} />

@@ -1,8 +1,8 @@
 import Field, { inputClass, btnSecondary } from './Field'
 import { emptyOccupant } from '../utils/occupants'
-import { formatCurrency } from '../utils/format'
+import { formatCurrency, todayIso } from '../utils/format'
 
-export default function OccupantsForm({ tenants, occupants, onChange, standardRent }) {
+export default function OccupantsForm({ tenants, occupants, onChange, standardRent, changing = false }) {
   const hasStandardRent = standardRent !== undefined && standardRent !== null && standardRent !== ''
 
   function update(index, patch) {
@@ -13,7 +13,7 @@ export default function OccupantsForm({ tenants, occupants, onChange, standardRe
     const first = occupants[0]
     onChange([
       ...occupants,
-      emptyOccupant(first?.startDate ?? '', hasStandardRent ? standardRent : first?.monthlyRent ?? ''),
+      emptyOccupant(changing ? todayIso() : first?.startDate ?? '', hasStandardRent ? standardRent : first?.monthlyRent ?? ''),
     ])
   }
 
@@ -39,7 +39,14 @@ export default function OccupantsForm({ tenants, occupants, onChange, standardRe
               <select
                 className={inputClass}
                 value={occupant.tenantId}
-                onChange={(e) => update(index, { tenantId: e.target.value })}
+                onChange={(e) => {
+                  const tenantId = e.target.value
+                  const isOriginal = changing && tenantId === occupant.originalTenantId
+                  update(index, {
+                    tenantId,
+                    startDate: changing ? (isOriginal ? occupant.originalStartDate : todayIso()) : occupant.startDate,
+                  })
+                }}
                 required
               >
                 <option value="">Select tenant</option>
@@ -58,6 +65,7 @@ export default function OccupantsForm({ tenants, occupants, onChange, standardRe
                   type="date"
                   className={inputClass}
                   value={occupant.startDate}
+                  readOnly={changing && String(occupant.tenantId) === occupant.originalTenantId}
                   onChange={(e) => update(index, { startDate: e.target.value })}
                   required
                 />
@@ -69,11 +77,15 @@ export default function OccupantsForm({ tenants, occupants, onChange, standardRe
                   step="0.01"
                   className={inputClass}
                   value={occupant.monthlyRent}
+                  readOnly={changing && String(occupant.tenantId) === occupant.originalTenantId}
                   onChange={(e) => update(index, { monthlyRent: e.target.value })}
                   required
                 />
               </Field>
             </div>
+            {changing && occupant.originalTenantId && String(occupant.tenantId) === occupant.originalTenantId && (
+              <p className="text-xs text-ink-faint">Existing stay preserved: original start date, rent and payment history remain unchanged.</p>
+            )}
             {hasStandardRent && index === 0 && (
               <p className="text-xs text-ink-faint">Standard rent for this property: {formatCurrency(standardRent)}</p>
             )}

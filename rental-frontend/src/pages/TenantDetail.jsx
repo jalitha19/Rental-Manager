@@ -67,7 +67,15 @@ export default function TenantDetail() {
       ])
       setTenant(t)
       setHistory(rentals)
-      setPayments(allPayments.filter((p) => String(p.rental?.tenant?.id) === String(id)))
+      const tenantStayIds = new Set(rentals.flatMap((rental) =>
+        getOccupants(rental).filter((occupant) => String(occupant.tenant?.id) === String(id))
+          .map((occupant) => String(occupant.id))
+      ))
+      setPayments(allPayments.filter((payment) =>
+        payment.rentalTenantId != null
+          ? tenantStayIds.has(String(payment.rentalTenantId))
+          : String(payment.rental?.tenant?.id) === String(id)
+      ))
       setProperties(propertyList)
       setForm({
         tenantType: t.tenantType,

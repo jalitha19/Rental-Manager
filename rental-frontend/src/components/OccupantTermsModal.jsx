@@ -22,6 +22,7 @@ export default function OccupantTermsModal({ rental, onClose, onSaved }) {
         name: occupant.tenant?.fullName ?? '',
         startDate: String(occupant.startDate ?? '').slice(0, 10),
         monthlyRent: occupant.monthlyRent ?? '',
+        rentEffectiveMonth: new Date().toISOString().slice(0, 7),
       }))
     )
   }, [rental])
@@ -43,6 +44,7 @@ export default function OccupantTermsModal({ rental, onClose, onSaved }) {
           id: row.id,
           startDate: row.startDate,
           monthlyRent: Number(row.monthlyRent),
+          rentEffectiveMonth: `${row.rentEffectiveMonth}-01`,
         })),
       })
       push('Tenant terms updated')
@@ -59,8 +61,8 @@ export default function OccupantTermsModal({ rental, onClose, onSaved }) {
     <Modal open={!!rental} title="Edit tenant terms" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <p className="text-sm text-ink-soft">
-          Set each tenant's own start date and monthly rent. Existing payment records are not changed. Missing months
-          are added the next time rents are created, and you can edit an existing month on the Payments page.
+          Past monthly payment amounts are never changed, including unpaid payments. A new rent applies from the current month onward.
+          Missing monthly records are generated at the rent applicable to each month.
         </p>
         {rows.map((row, index) => (
           <div key={row.id ?? index} className="space-y-3 rounded-lg border border-border p-3">
@@ -85,6 +87,13 @@ export default function OccupantTermsModal({ rental, onClose, onSaved }) {
                   onChange={(e) => update(index, { monthlyRent: e.target.value })}
                   required
                 />
+              </Field>
+              <Field label="New rent effective month (current month)">
+                <input type="month" className={inputClass}
+                  min={new Date().toISOString().slice(0, 7)}
+                  max={new Date().toISOString().slice(0, 7)}
+                  value={row.rentEffectiveMonth}
+                  onChange={(e) => update(index, { rentEffectiveMonth: e.target.value })} required />
               </Field>
             </div>
           </div>
