@@ -32,6 +32,7 @@ public class RentPaymentService {
     private final RentPaymentRepository rentPaymentRepository;
     private final RentalRepository rentalRepository;
     private final RentPaymentMapper rentPaymentMapper;
+    private final TenantRentRateService tenantRentRateService;
 
     public List<RentPaymentResponse> list(Long rentalId, LocalDate periodMonth, Integer year, PaymentStatus status) {
         List<RentPayment> payments;
@@ -100,8 +101,11 @@ public class RentPaymentService {
                     .findFirst()
                     .orElseThrow(() -> new BusinessRuleException("That tenant does not belong to this rental"));
         }
-        if (occupants.size() == 1) {
-            return occupants.get(0);
+        List<RentalTenant> eligible = rental.getStatus() == RentalStatus.ACTIVE
+                ? occupants.stream().filter(o -> o.getEndDate() == null).toList()
+                : occupants;
+        if (eligible.size() == 1) {
+            return eligible.get(0);
         }
         throw new BusinessRuleException(
                 "This rental has more than one tenant. Choose which tenant the payment is for.");
@@ -180,9 +184,6 @@ public class RentPaymentService {
 
         for (Rental rental : activeRentals) {
             for (RentalTenant occupant : rental.getOccupants()) {
-                if (occupant.getMonthlyRent() == null || occupant.getMonthlyRent().signum() <= 0) {
-                    continue;
-                }
 
                 LocalDate firstMonth = occupant.getStartDate().withDayOfMonth(1);
                 LocalDate lastMonth = upperMonth;
@@ -198,11 +199,13 @@ public class RentPaymentService {
                         continue;
                     }
 
+                    BigDecimal monthlyRate = tenantRentRateService.rentFor(occupant, month);
+                    if (monthlyRate == null || monthlyRate.signum() <= 0) continue;
                     RentPayment payment = RentPayment.builder()
                             .rental(rental)
                             .rentalTenant(occupant)
                             .periodMonth(month)
-                            .amountDue(occupant.getMonthlyRent())
+                            .amountDue(monthlyRate)
                             .amountPaid(BigDecimal.ZERO)
                             .dueDate(dueDateFor(rental, month))
                             .status(PaymentStatus.UNPAID)

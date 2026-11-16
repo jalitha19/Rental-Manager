@@ -13,7 +13,9 @@ public record OccupantUpdateRequest(
         LocalDate startDate,
         @NotNull(message = "Monthly rent is required")
         @DecimalMin(value = "0.0", message = "Monthly rent cannot be negative")
-        BigDecimal monthlyRent
+        BigDecimal monthlyRent,
+        /** First month charged at the new rate; required when the rent changes. */
+        LocalDate rentEffectiveMonth
         ) {
 
 }
