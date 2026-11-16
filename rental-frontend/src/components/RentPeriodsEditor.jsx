@@ -1,51 +1,46 @@
 import Field, { inputClass, btnSecondary } from './Field'
-import { appendRentPeriod, removeRentPeriod, updateRentPeriod, validateRentPeriods } from '../utils/rentPeriods'
+import { appendHistoricalPeriod, removeHistoricalPeriod, updateHistoricalPeriod } from '../utils/rentPeriods'
 
-/** Repeatable monthly price segments for a single, unchanged tenant stay. */
-export default function RentPeriodsEditor({ periods, onChange, stayStart, allowDisable = false, onDisable }) {
-  const error = validateRentPeriods(periods, stayStart)
+/** Only past price intervals live here. Current price and its start date stay in the fields above. */
+export default function RentPeriodsEditor({ periods = [], onChange, readOnly = false }) {
   return (
     <div className="space-y-3 rounded-lg border border-border bg-ink/[0.025] p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-ink">Rent price history</p>
-          <p className="text-xs text-ink-soft">Each price covers entire calendar months. The last price continues to Present.</p>
-        </div>
-        {allowDisable && <button type="button" className="text-xs text-ink-soft underline" onClick={onDisable}>Use one rent only</button>}
+      <div>
+        <p className="text-sm font-semibold text-ink">Previous rent history</p>
+        <p className="text-xs text-ink-soft">Add each old price below. Use DD/MM/YYYY dates: start on the 1st and end on the last day of the month.</p>
       </div>
+      {periods.length === 0 && <p className="text-xs text-ink-faint">No previous rent periods entered. The rent above is the current price.</p>}
       {periods.map((period, index) => (
-        <div key={index} className="space-y-2 rounded-lg border border-border bg-surface p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-ink">{index === periods.length - 1 ? 'Current / latest price' : `Historical price ${index + 1}`}</p>
-            {periods.length > 1 && index > 0 && (
-              <button type="button" className="text-xs text-danger" onClick={() => onChange(removeRentPeriod(periods, index))}>Remove</button>
-            )}
+        <div key={index} className="space-y-3 rounded-lg border border-border bg-surface p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-ink">Previous rent period {index + 1}</p>
+            {!readOnly && <button type="button" className="text-xs font-medium text-danger" onClick={() => onChange(removeHistoricalPeriod(periods, index))}>Remove</button>}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="From month">
-              <input type="month" className={inputClass} value={period.startMonth}
-                readOnly required />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Field label="Start date (DD/MM/YYYY)">
+              <input type="text" inputMode="numeric" autoComplete="off" placeholder="01/01/2018" className={inputClass}
+                value={period.startDate} readOnly={readOnly} required
+                onChange={(e) => onChange(updateHistoricalPeriod(periods, index, { startDate: e.target.value }))} />
             </Field>
-            <Field label="Through month">
-              {index === periods.length - 1
-                ? <input value="Present / ongoing" className={inputClass} readOnly aria-label="Through present" />
-                : <input type="month" className={inputClass} value={period.endMonth}
-                    min={period.startMonth} onChange={(e) => onChange(updateRentPeriod(periods, index, { endMonth: e.target.value }))} required />}
+            <Field label="End date (DD/MM/YYYY)">
+              <input type="text" inputMode="numeric" autoComplete="off" placeholder="31/07/2022" className={inputClass}
+                value={period.endDate} readOnly={readOnly} required
+                onChange={(e) => onChange(updateHistoricalPeriod(periods, index, { endDate: e.target.value }))} />
             </Field>
           </div>
           <Field label="Monthly rent (Rs.)">
-            <input type="number" className={inputClass} min="0" step="0.01" required value={period.monthlyRent}
-              onChange={(e) => onChange(updateRentPeriod(periods, index, { monthlyRent: e.target.value }))} />
+            <input type="number" min="0" step="0.01" className={inputClass}
+              value={period.monthlyRent} readOnly={readOnly} required
+              onChange={(e) => onChange(updateHistoricalPeriod(periods, index, { monthlyRent: e.target.value }))} />
           </Field>
         </div>
       ))}
-      <button type="button" className={btnSecondary} onClick={() => onChange(appendRentPeriod(periods))}>
+      {!readOnly && <button type="button" className={btnSecondary} onClick={() => onChange(appendHistoricalPeriod(periods))}>
         + Add next rent period
-      </button>
-      {error && <p className="text-xs text-danger" role="alert">{error}</p>}
+      </button>}
       <p className="text-xs text-ink-soft">
-        The price history determines the amount for future invoices and any missing invoices you explicitly choose to generate.
-        Past-month invoices are never automatically changed; only an untouched current-month invoice may be updated. Record actual past payments separately.
+        Rent is billed by calendar month. Previous periods must connect without gaps or overlaps and end before the current rent starts.
+        Saving the timeline does not overwrite old invoices or mark rent as paid.
       </p>
     </div>
   )
