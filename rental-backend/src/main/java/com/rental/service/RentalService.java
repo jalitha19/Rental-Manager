@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -121,7 +122,12 @@ public class RentalService {
             throw new BusinessRuleException("End date cannot be before start date");
         }
 
-        Rental saved = rentalRepository.save(rental);
+        Rental saved = hasScheduledPeriods(occupantRequests)
+                ? rentalRepository.saveAndFlush(rental) : rentalRepository.save(rental);
+        persistNewSchedules(saved, occupantRequests);
+        if (requestedStatus == RentalStatus.ACTIVE && hasScheduledPeriods(occupantRequests)) {
+            generateMissingPayments(saved, occupantRequests);
+        }
 
         if (requestedStatus == RentalStatus.ACTIVE) {
             property.setStatus(PropertyStatus.OCCUPIED);
@@ -158,11 +164,23 @@ public class RentalService {
                                 "Tenant entry not found on this rental: " + change.id()));
                 boolean startChanged = !occupant.getStartDate().equals(change.startDate());
                 boolean rentChanged = occupant.getMonthlyRent().compareTo(change.monthlyRent()) != 0;
-                if (rentChanged) {
-                    applyRentChange(occupant, change.monthlyRent(), change.rentEffectiveMonth());
+                if (change.rentPeriods() != null && !change.rentPeriods().isEmpty()) {
+                    tenantRentRateService.validatePeriods(change.startDate(), change.rentPeriods());
+                    BigDecimal latestRate = change.rentPeriods().get(change.rentPeriods().size() - 1).monthlyRent();
+                    if (latestRate.compareTo(change.monthlyRent()) != 0) {
+                        throw new BusinessRuleException("Monthly rent must match the latest rent period");
+                    }
+                    occupant.setStartDate(change.startDate());
+                    tenantRentRateService.replacePeriods(occupant, change.rentPeriods());
+                    occupant.setMonthlyRent(latestRate);
+                    // Never rewrite historical invoices. Current month's untouched invoice
+                    // may reflect the newly confirmed current rent, as in the old workflow.
+                    reconcileUnpaidPayments(rental, occupant, false, Boolean.TRUE.equals(change.generateMissingPayments()));
+                } else {
+                    if (rentChanged) applyRentChange(occupant, change.monthlyRent(), change.rentEffectiveMonth());
+                    occupant.setStartDate(change.startDate());
+                    if (startChanged || rentChanged) changedOccupants.add(occupant);
                 }
-                occupant.setStartDate(change.startDate());
-                if (startChanged || rentChanged) changedOccupants.add(occupant);
             }
         } else {
             RentalTenant primary = occupants.get(0);
@@ -177,10 +195,15 @@ public class RentalService {
             }
         }
 
-        if (rental.getStatus() != RentalStatus.ACTIVE) {
+        if (rental.getStatus() != RentalStatus.ACTIVE
+                && !Objects.equals(rental.getEndDate(), request.endDate())) {
+            LocalDate previousRentalEnd = rental.getEndDate();
             rental.setEndDate(request.endDate());
+            // Never move the individual departure dates of occupants who left earlier.
             for (RentalTenant occupant : occupants) {
-                occupant.setEndDate(request.endDate());
+                if (Objects.equals(occupant.getEndDate(), previousRentalEnd)) {
+                    occupant.setEndDate(request.endDate());
+                }
             }
         }
 
@@ -195,7 +218,7 @@ public class RentalService {
         rental.setNotes(request.notes());
         syncSummary(rental);
         for (RentalTenant occupant : changedOccupants) {
-            reconcileUnpaidPayments(rental, occupant);
+            reconcileUnpaidPayments(rental, occupant, false, true);
         }
 
         return rentalMapper.toResponse(rental);
@@ -215,7 +238,7 @@ public class RentalService {
     }
 
     /** Reconcile start-date changes, and only FUTURE/current unpaid invoices after a rent change. */
-    private void reconcileUnpaidPayments(Rental rental, RentalTenant occupant) {
+    private void reconcileUnpaidPayments(Rental rental, RentalTenant occupant, boolean preserveExisting, boolean generateMissing) {
         LocalDate firstMonth = occupant.getStartDate().withDayOfMonth(1);
         LocalDate lastMonth = YearMonth.now().atDay(1);
         LocalDate thisMonth = lastMonth;
@@ -233,13 +256,13 @@ public class RentalService {
                     && payment.getPaymentDate() == null && payment.getPaymentMethod() == null
                     && (payment.getNotes() == null || payment.getNotes().isBlank());
             // Past payments must never be rewritten or deleted by editing tenant terms.
-            if (untouched && !month.isBefore(thisMonth) && !month.isBefore(firstMonth)
+            if (!preserveExisting && untouched && !month.isBefore(thisMonth) && !month.isBefore(firstMonth)
                     && !month.isAfter(lastMonth)) {
                 payment.setAmountDue(tenantRentRateService.rentFor(occupant, month));
                 payment.setDueDate(dueDateFor(rental, month));
             }
         }
-        if (rental.getStatus() != RentalStatus.ACTIVE) return;
+        if (rental.getStatus() != RentalStatus.ACTIVE || !generateMissing) return;
         for (LocalDate month = firstMonth; !month.isAfter(lastMonth); month = month.plusMonths(1)) {
             if (existingMonths.contains(month)) continue;
             BigDecimal rate = tenantRentRateService.rentFor(occupant, month);
@@ -355,7 +378,25 @@ public class RentalService {
                 if (request.paymentDueDay() != null) current.setPaymentDueDay(request.paymentDueDay());
                 if (request.notes() != null && !request.notes().isBlank()) current.setNotes(request.notes());
                 syncSummary(current);
-                return rentalMapper.toResponse(rentalRepository.save(current));
+                Rental savedCurrent = hasScheduledPeriods(newcomers)
+                        ? rentalRepository.saveAndFlush(current) : rentalRepository.save(current);
+                persistNewSchedules(savedCurrent, newcomers);
+                if (hasScheduledPeriods(newcomers)) generateMissingPayments(savedCurrent, newcomers);
+                // An explicitly edited continuing occupant keeps the same stay ID.
+                // Update only its rate ledger; preserve all historical invoice amounts.
+                for (RentalTenant staying : continuing) {
+                    OccupantRequest update = occupantRequests.stream()
+                            .filter(r -> r.tenantId().equals(staying.getTenant().getId()))
+                            .findFirst().orElseThrow();
+                    if (update.rentPeriods() != null && !update.rentPeriods().isEmpty()) {
+                        tenantRentRateService.validatePeriods(staying.getStartDate(), update.rentPeriods());
+                        tenantRentRateService.replacePeriods(staying, update.rentPeriods());
+                        staying.setMonthlyRent(update.rentPeriods().get(update.rentPeriods().size() - 1).monthlyRent());
+                        reconcileUnpaidPayments(current, staying, false, Boolean.TRUE.equals(update.generateMissingPayments()));
+                    }
+                }
+                syncSummary(current);
+                return rentalMapper.toResponse(savedCurrent);
             }
         }
 
@@ -405,10 +446,41 @@ public class RentalService {
         addOccupants(incoming, occupantRequests, defaultRent, null);
         syncSummary(incoming);
 
-        Rental saved = rentalRepository.save(incoming);
+        Rental saved = hasScheduledPeriods(occupantRequests)
+                ? rentalRepository.saveAndFlush(incoming) : rentalRepository.save(incoming);
+        persistNewSchedules(saved, occupantRequests);
+        if (hasScheduledPeriods(occupantRequests)) generateMissingPayments(saved, occupantRequests);
         property.setStatus(PropertyStatus.OCCUPIED);
 
         return rentalMapper.toResponse(saved);
+    }
+
+    private boolean hasScheduledPeriods(List<OccupantRequest> requests) {
+        return requests.stream().anyMatch(o -> o.rentPeriods() != null && !o.rentPeriods().isEmpty());
+    }
+
+    /** Save rate timelines only for explicitly supplied new occupants, not retained ones. */
+    private void persistNewSchedules(Rental rental, List<OccupantRequest> requests) {
+        for (OccupantRequest request : requests) {
+            if (request.rentPeriods() == null || request.rentPeriods().isEmpty()) continue;
+            RentalTenant occupant = rental.getOccupants().stream()
+                    .filter(o -> o.getTenant().getId().equals(request.tenantId()))
+                    .reduce((first, second) -> second)
+                    .orElseThrow(() -> new BusinessRuleException("Cannot find newly assigned tenant"));
+            tenantRentRateService.replacePeriods(occupant, request.rentPeriods());
+        }
+    }
+
+    /** Historical schedules create only missing UNPAID invoices; never mark anything paid. */
+    private void generateMissingPayments(Rental rental, List<OccupantRequest> requests) {
+        for (OccupantRequest request : requests) {
+            if (request.rentPeriods() == null || request.rentPeriods().isEmpty()
+                    || !Boolean.TRUE.equals(request.generateMissingPayments())) continue;
+            RentalTenant occupant = rental.getOccupants().stream()
+                    .filter(o -> o.getTenant().getId().equals(request.tenantId()) && o.getEndDate() == null)
+                    .findFirst().orElseThrow();
+            reconcileUnpaidPayments(rental, occupant, true, true);
+        }
     }
 
     private List<OccupantRequest> resolveOccupants(
@@ -441,6 +513,13 @@ public class RentalService {
         }
         Set<Long> seen = new HashSet<>();
         for (OccupantRequest request : requests) {
+            if (request.rentPeriods() != null && !request.rentPeriods().isEmpty()) {
+                tenantRentRateService.validatePeriods(request.startDate(), request.rentPeriods());
+                BigDecimal mostRecent = request.rentPeriods().get(request.rentPeriods().size() - 1).monthlyRent();
+                if (request.monthlyRent() != null && request.monthlyRent().compareTo(mostRecent) != 0) {
+                    throw new BusinessRuleException("Monthly rent must match the latest rent period");
+                }
+            }
             if (!seen.add(request.tenantId())) {
                 throw new BusinessRuleException("The same tenant cannot be added twice to one rental");
             }
@@ -454,7 +533,9 @@ public class RentalService {
                     .tenant(getTenantOrThrow(request.tenantId()))
                     .startDate(request.startDate())
                     .endDate(endDate)
-                    .monthlyRent(request.monthlyRent() != null ? request.monthlyRent() : defaultRent)
+                    .monthlyRent(request.rentPeriods() != null && !request.rentPeriods().isEmpty()
+                            ? request.rentPeriods().get(request.rentPeriods().size() - 1).monthlyRent()
+                            : request.monthlyRent() != null ? request.monthlyRent() : defaultRent)
                     .build());
         }
     }

@@ -1,6 +1,8 @@
 package com.rental.mapper;
 
 import com.rental.dto.OccupantResponse;
+import com.rental.service.TenantRentRateService;
+import lombok.RequiredArgsConstructor;
 import com.rental.dto.PropertySummary;
 import com.rental.dto.RentalResponse;
 import com.rental.dto.TenantSummary;
@@ -11,7 +13,9 @@ import com.rental.entity.Tenant;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class RentalMapper {
+    private final TenantRentRateService tenantRentRateService;
 
     public RentalResponse toResponse(Rental rental) {
         return new RentalResponse(
@@ -38,7 +42,8 @@ public class RentalMapper {
                 toTenantSummary(occupant.getTenant()),
                 occupant.getStartDate(),
                 occupant.getEndDate(),
-                occupant.getMonthlyRent()
+                occupant.getMonthlyRent(),
+                occupant.getId() == null ? java.util.List.of() : tenantRentRateService.periodsFor(occupant.getId())
         );
     }
 
