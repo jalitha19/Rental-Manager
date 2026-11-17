@@ -331,10 +331,17 @@ public class RentalService {
                 request.newStartDate(), request.monthlyRent());
         validateOccupantRequests(occupantRequests);
 
-        LocalDate changeDate = occupantRequests.stream()
-                .map(OccupantRequest::startDate)
-                .min(Comparator.naturalOrder())
-                .orElseThrow();
+        // newStartDate is the changeover date (when someone actually moves out).
+        // An incoming occupant may have an earlier historical move-in date and
+        // rent-price timeline. Never use that historical date to close an
+        // outgoing stay: it can incorrectly end the stay before it even began.
+        // Legacy callers that omit newStartDate retain the original fallback.
+        LocalDate changeDate = request.newStartDate() != null
+                ? request.newStartDate()
+                : occupantRequests.stream()
+                        .map(OccupantRequest::startDate)
+                        .min(Comparator.naturalOrder())
+                        .orElseThrow();
 
         Optional<Rental> currentActive = rentalRepository.findByPropertyIdAndStatus(propertyId, RentalStatus.ACTIVE);
 
@@ -352,17 +359,19 @@ public class RentalService {
                         .filter(requested -> continuing.stream()
                                 .noneMatch(o -> o.getTenant().getId().equals(requested.tenantId())))
                         .toList();
-                LocalDate effectiveDate = newcomers.stream()
-                        .map(OccupantRequest::startDate)
-                        .min(Comparator.naturalOrder())
-                        .orElse(request.newStartDate());
-                if (effectiveDate == null) {
-                    throw new BusinessRuleException("Change date is required when removing an occupant");
-                }
-                LocalDate latestCurrentStart = latestCurrentStart(current);
-                if (effectiveDate.isBefore(latestCurrentStart)) {
-                    throw new BusinessRuleException("Change date cannot be before the current tenants' latest start date ("
-                            + latestCurrentStart + ")");
+                // The actual changeover comes from the request, not the earliest
+                // backfilled historical start date of the incoming occupant.
+                LocalDate effectiveDate = changeDate;
+                List<RentalTenant> departing = current.getOccupants().stream()
+                        .filter(o -> o.getEndDate() == null)
+                        .filter(o -> continuing.stream().noneMatch(kept -> kept.getId().equals(o.getId())))
+                        .toList();
+                for (RentalTenant leaving : departing) {
+                    if (effectiveDate.isBefore(leaving.getStartDate())) {
+                        throw new BusinessRuleException(
+                                "Changeover date cannot be before a departing tenant's actual move-in date ("
+                                + leaving.getStartDate() + ")");
+                    }
                 }
                 // Do not allow an old/current occupant to be silently backdated or edited.
                 // The existing RentalTenant row, original start date and rent remain unchanged.
@@ -410,10 +419,12 @@ public class RentalService {
         if (currentActive.isPresent()) {
             Rental outgoing = currentActive.get();
 
+            // Only the actual changeover date must be after the outgoing
+            // occupants moved in. Their history must never end before it began.
             LocalDate latestCurrentStart = latestCurrentStart(outgoing);
             if (changeDate.isBefore(latestCurrentStart)) {
                 throw new BusinessRuleException(
-                        "New start date cannot be before the current tenants' latest start date ("
+                        "Changeover date cannot be before a departing tenant's actual move-in date ("
                         + latestCurrentStart + ")");
             }
 
